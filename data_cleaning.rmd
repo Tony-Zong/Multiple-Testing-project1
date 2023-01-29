@@ -6,6 +6,7 @@ output: word_document
 ---
 
 ```{r setup message=FALSE, warning=FALSE}
+rm(list=ls())
 library(tidyverse)
 ```
 
@@ -37,17 +38,29 @@ df <- df %>%
 ```
 
 ```{r}
+df <- df %>% 
+  # standardize each route for comparability
+  group_by(route) %>% 
+  mutate(st_duration = scale(duration)[,1]) %>%
+  ungroup()
+
+test <- filter(df, route == 5)
+mean(test$st_duration)
+sd(test$st_duration)
+```
+
+```{r}
 df %>% 
   group_by(hour) %>% 
-  mutate(mean_duration = mean(duration)) %>% 
+  mutate(mean_duration = mean(st_duration)) %>% 
   ggplot(aes(hour, mean_duration)) +
   geom_line()
 ```
 
 ```{r}
-df %>% 
-  ggplot(aes(hour)) +
-  geom_histogram()
+# df %>% 
+#   ggplot(aes(hour)) +
+#   geom_histogram()
 ```
 
 ```{r}
