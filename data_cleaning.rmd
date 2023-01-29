@@ -1,0 +1,66 @@
+---
+title: "Untitled"
+author: "Tony Zong"
+date: '2023-01-28'
+output: word_document
+---
+
+```{r setup message=FALSE, warning=FALSE}
+library(tidyverse)
+```
+
+```{r}
+load("data/bikedata.RData")
+```
+
+```{r}
+df = data.frame(duration)
+
+df$year = starttime[,1]
+df$month = starttime[,2]
+df$date = starttime[,3]
+df$hour = starttime[,4]
+
+df$bikenum = bikenum
+df$day_of_week = day_of_week
+df$member = member
+df$station_start = station_start
+df$station_end = station_end
+```
+
+```{r}
+df <- df %>% 
+  # assign id to route
+  group_by(station_start, station_end) %>% 
+  mutate(route = cur_group_id()) %>% 
+  ungroup() 
+```
+
+```{r}
+df %>% 
+  group_by(hour) %>% 
+  mutate(mean_duration = mean(duration)) %>% 
+  ggplot(aes(hour, mean_duration)) +
+  geom_line()
+```
+
+```{r}
+df %>% 
+  ggplot(aes(hour)) +
+  geom_histogram()
+```
+
+```{r}
+
+  # weekend
+  # mutate(weekend = day_of_week %in% c("Saturday", "Sunday")) %>% 
+  
+```
+
+```{r}
+
+
+```
+
+
+
