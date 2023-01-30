@@ -5,9 +5,19 @@ date: '2023-01-28'
 output: word_document
 ---
 
-```{r setup message=FALSE, warning=FALSE}
+```{r setup, message=FALSE, warning=FALSE}
 rm(list=ls())
 library(tidyverse)
+```
+
+```{r}
+temp_data <- 
+  read.table("data/temperature-data.txt", 
+           skip = 1, 
+           col.names = c('time1', 'time2', 'daily_max', 'daily_min')) %>% 
+  mutate(year = as.numeric(substring(time2,1,4))) %>% 
+  mutate(month = as.numeric(substring(time2,6,7))) %>% 
+  mutate(date = as.numeric(substring(time2,9,10)))
 ```
 
 ```{r}
@@ -38,10 +48,38 @@ df <- df %>%
 ```
 
 ```{r}
+# add temperature
+df <- df %>% 
+  left_join(temp_data, by = c('year','month','date')) %>% 
+  mutate(daily_avg_temp = (daily_max+daily_min)/2)
+```
+
+
+## Initial subgroupings, subject to change
+
+```{r}
+df <- df %>% 
+  mutate(weekend = day_of_week %in% c("Saturday", "Sunday")) %>% 
+  mutate(daytime = hour %in% 7:18) %>% 
+  mutate(log_duration = log(duration))
+```
+
+
+```{r}
+today = Sys.Date()
+write.csv(df, paste('data/clean_df_',today,".csv",sep=''))
+```
+
+
+
+
+## How to categorize the subgroups?
+
+```{r}
 df <- df %>% 
   # standardize each route for comparability
   group_by(route) %>% 
-  mutate(st_duration = scale(duration)[,1]) %>%
+  mutate(st_duration = (duration - mean(duration))/sd(duration)) %>%
   ungroup()
 
 test <- filter(df, route == 5)
@@ -49,31 +87,47 @@ mean(test$st_duration)
 sd(test$st_duration)
 ```
 
+
 ```{r}
 df %>% 
   group_by(hour) %>% 
-  mutate(mean_duration = mean(st_duration)) %>% 
+  mutate(mean_duration = mean(duration)) %>%
+  mutate(mean_duration = if_else(is.na(mean_duration), 0, mean_duration)) %>% 
   ggplot(aes(hour, mean_duration)) +
   geom_line()
 ```
 
-```{r}
-# df %>% 
-#   ggplot(aes(hour)) +
-#   geom_histogram()
-```
-
-```{r}
-
-  # weekend
-  # mutate(weekend = day_of_week %in% c("Saturday", "Sunday")) %>% 
-  
-```
-
-```{r}
 
 
-```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
