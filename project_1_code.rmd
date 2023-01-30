@@ -50,7 +50,6 @@ df <- data.frame(duration = scale(duration)[,1], station_start, station_end,
 # Drop unnecessary columns
 df <- subset(df, select=-c(station_start, station_end, year, month, day, 
                            minute, second, time1, time2, daily_max, daily_min))
-
 summary(df)
 ```
 
@@ -77,6 +76,10 @@ p_vals <- df %>%
 
 ``` {r}
 hist(p_vals$p_val, xlab="p_value", main="P-value Histogram", breaks=20)
+```
+
+``` {r}
+
 ```
 
 # Task-Specific Permutation Tests
