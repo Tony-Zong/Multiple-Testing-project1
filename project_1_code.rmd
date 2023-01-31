@@ -21,7 +21,6 @@ rm(list=ls())
 Might need some further cleaning
 
 ```{r}
-?log
 # Temperature Data
 temp_data <- 
   read.table("data/temperature-data.txt", 
@@ -163,7 +162,7 @@ permutation.task_specific_test <- function(duration, days_from_start, grouping, 
   return (p_val)
 }
 
-# Control for Membership status
+# Control for Membership status & a bunch of other stuff xD
 member_controlled_pvals <- df %>%
   group_by(route) %>%
   summarize(p_val = permutation.task_specific_test(duration, days_since_Jan1_2010, 
@@ -181,84 +180,24 @@ hist(member_controlled_pvals$p_val,
 plot_route_change(df, member_controlled_pvals)
 ```
 
+## Control for weekday
 
+Apart from membership status, the day of the week might also be a possible confounder. Adjusting the permutation test scheme to account for weekday/weekend can ensure certain original trends in the data, for example the proportion of weekend rides, remain unchanged.
 
+```{r}
+# Control for weekend or weekday
+weekday_controlled_pvals <- df %>%
+  group_by(route) %>%
+  summarize(p_val = permutation.task_specific_test(duration, days_since_Jan1_2010, weekend))
+```
 
+## Weekday Controlled P-value Histogram and Graphs
 
+``` {r}
+hist(weekday_controlled_pvals$p_val, 
+     xlab="p_value", main="P-value Histogram", breaks=20)
+```
 
-## Initial subgroupings, subject to change
-
-# ```{r}
-# df <- df %>%
-#   mutate(weekend = day_of_week %in% c("Saturday", "Sunday")) %>%
-#   mutate(daytime = hour %in% 7:18) %>%
-#   mutate(log_duration = log(duration))
-# ```
-
-
-# ```{r}
-# # Save Data
-# today = Sys.Date()
-# write.csv(df, paste('data/clean_df_',today,".csv",sep=''))
-# ```
-
-
-## How to categorize the subgroups?
-
-# ```{r}
-# df <- df %>% 
-#   # standardize each route for comparability
-#   group_by(route) %>% 
-#   mutate(st_duration = (duration - mean(duration))/sd(duration)) %>%
-#   ungroup()
-# 
-# test <- filter(df, route == 5)
-# mean(test$st_duration)
-# sd(test$st_duration)
-# ?scale
-# ```
-
-
-# ```{r}
-# df %>% 
-#   group_by(hour) %>% 
-#   mutate(mean_duration = mean(duration)) %>%
-#   mutate(mean_duration = if_else(is.na(mean_duration), 0, mean_duration)) %>% 
-#   ggplot(aes(hour, mean_duration)) +
-#   geom_line()
-# ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+``` {r}
+plot_route_change(df, weekday_controlled_pvals)
+```
