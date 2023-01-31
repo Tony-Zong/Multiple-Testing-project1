@@ -9,7 +9,7 @@ output:
     df_print: paged
 ---
 
-```{r setup message=FALSE, warning=FALSE, include=FALSE}
+```{r setup, message=FALSE, warning=FALSE, include=FALSE}
 knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 80), tidy = TRUE)
 knitr::opts_chunk$set(echo = TRUE, fig.height = 4, fig.align = 'center')
 library(tidyverse)
@@ -79,7 +79,16 @@ hist(p_vals$p_val, xlab="p_value", main="P-value Histogram", breaks=20)
 ```
 
 ``` {r}
-
+plot_route_change <- function(df, p_vals) {
+  sorted_pvals <- p_vals[order(p_vals$p_val), ]
+  par(mfrow=c(1,2))
+  for (i in 1:2) {
+    route_df <- filter(df, route == sorted_pvals$route[i])
+    plot(route_df$days_since_Jan1_2010, route_df$duration,
+         xlab="Days since Jan 1st 2010", ylab="Duration", type="l")
+  }
+}
+plot_route_change(df, p_vals)
 ```
 
 # Task-Specific Permutation Tests
@@ -88,14 +97,16 @@ However, with confounding variables in the play, a simple permutation scheme wil
 
 Let $X_j$ be the explanatory variables, and $Y$ be the response, which in our case is the ride duration. Suppose $X_0$ is the days_since_Jan1_2010, what we are actually interested in is the following hypothesis test:
 $$ H_0: Y \perp \!\!\! \perp X_0 \; | \; X_{-0} \text{ = all other explanatory variables}$$
-However, due to limitations in the dataset, it is infeasible to control for all explanatory variables, as we don't have enough data for each possible variable combinations, and we have not collected every possible ambient variables, such as weather. Therefore, we opted to control a limit set of possible confounders. In particular, we control for the following variables:
+However, due to limitations in the dataset, it is infeasible to control for all explanatory variables, as we don't have enough data for each possible variable combinations, and we have not collected every possible ambient variables, such as weather. Therefore, we opted to control a limit set of possible confounders. In particular, we control for the following variables (and some of their combinations):
 
 - membership
 - day of the week
 - hour of the day
 - temperature
 
-During the permutation tests, we only permute data that, for instance, has the same membership status. If we let $X = $ days_from_Jan1_2010, $Z = $ membership status, $Y = $ duration, and $\tilde{X}$ be another days_from_Jan1_2010 data that got permuted, then under the null hypothesis that $ H_0: Y \perp \!\!\! \perp X \; | \; Z$ and an additional assumption that $\mathbb{P}(X \; | \; Z) = \mathbb{P}(\tilde{X} \; | \; Z)$, we have
+During the permutation tests, we only permute data that, for instance, has the same membership status. If we let $X = $ days_from_Jan1_2010, $Z = $ membership status, $Y = $ duration, and $\tilde{X}$ be another days_from_Jan1_2010 data that got permuted, then under the null hypothesis that 
+$$ H_0: Y \perp \!\!\! \perp X \; | \; Z $$ 
+and an additional assumption that $\mathbb{P}(X \; | \; Z) = \mathbb{P}(\tilde{X} \; | \; Z)$, we have
 
 $$
 \begin{aligned}
@@ -108,6 +119,7 @@ $$
 Therefore, the distribution remains unchanged. This additional assumption that $\mathbb{P}(X \; | \; Z) = \mathbb{P}(\tilde{X} \; | \; Z)$ is reasonable in this case, as we are only saying that a member, or non-member, has the same probability of riding on any day. As such, we adjust the permutation test scheme to be task specific to account for confounders.
 
 ``` {r}
+# Task specific Permutation Tests
 permutation.task_specific_test <- function(duration, days_from_start, grouping, n=100) {
   T <- abs(cor(duration, days_from_start))
   distribution <- c()
@@ -120,6 +132,8 @@ permutation.task_specific_test <- function(duration, days_from_start, grouping, 
   p_val <- (1 + sum(distribution >= T)) / (1 + n)
   return (p_val)
 }
+
+# Control for Membership status
 member_controlled_pvals <- df %>%
   group_by(route) %>%
   summarize(p_val = permutation.task_specific_test(duration, days_since_Jan1_2010, member))
@@ -132,47 +146,56 @@ hist(member_controlled_pvals$p_val,
      xlab="p_value", main="P-value Histogram", breaks=20)
 ```
 
+``` {r}
+plot_route_change(df, member_controlled_pvals)
+```
+
+
+
+
+
+
 ## Initial subgroupings, subject to change
 
-```{r}
-df <- df %>% 
-  mutate(weekend = day_of_week %in% c("Saturday", "Sunday")) %>% 
-  mutate(daytime = hour %in% 7:18) %>% 
-  mutate(log_duration = log(duration))
-```
+# ```{r}
+# df <- df %>%
+#   mutate(weekend = day_of_week %in% c("Saturday", "Sunday")) %>%
+#   mutate(daytime = hour %in% 7:18) %>%
+#   mutate(log_duration = log(duration))
+# ```
 
 
-```{r}
-# Save Data
-today = Sys.Date()
-write.csv(df, paste('data/clean_df_',today,".csv",sep=''))
-```
+# ```{r}
+# # Save Data
+# today = Sys.Date()
+# write.csv(df, paste('data/clean_df_',today,".csv",sep=''))
+# ```
 
 
 ## How to categorize the subgroups?
 
-```{r}
-df <- df %>% 
-  # standardize each route for comparability
-  group_by(route) %>% 
-  mutate(st_duration = (duration - mean(duration))/sd(duration)) %>%
-  ungroup()
+# ```{r}
+# df <- df %>% 
+#   # standardize each route for comparability
+#   group_by(route) %>% 
+#   mutate(st_duration = (duration - mean(duration))/sd(duration)) %>%
+#   ungroup()
+# 
+# test <- filter(df, route == 5)
+# mean(test$st_duration)
+# sd(test$st_duration)
+# ?scale
+# ```
 
-test <- filter(df, route == 5)
-mean(test$st_duration)
-sd(test$st_duration)
-?scale
-```
 
-
-```{r}
-df %>% 
-  group_by(hour) %>% 
-  mutate(mean_duration = mean(duration)) %>%
-  mutate(mean_duration = if_else(is.na(mean_duration), 0, mean_duration)) %>% 
-  ggplot(aes(hour, mean_duration)) +
-  geom_line()
-```
+# ```{r}
+# df %>% 
+#   group_by(hour) %>% 
+#   mutate(mean_duration = mean(duration)) %>%
+#   mutate(mean_duration = if_else(is.na(mean_duration), 0, mean_duration)) %>% 
+#   ggplot(aes(hour, mean_duration)) +
+#   geom_line()
+# ```
 
 
 
