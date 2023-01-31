@@ -58,6 +58,7 @@ summary(df)
 For each route, we are interested in the question if there is any change in ride duration at any point over the span of 2010-2011. In the language of hypothesis testing, this translates to the hypothesis that ride duration is independent of the days_since_Jan1_2010. Rejecting this hypothesis would mean that ride duration depends on the date - in other words change over time. We observe that the absolute value of correlation between duration and days_since_Jan1_2010 would be relatively small if the hypothesis is true and large otherwise, making it a good candidate statistic for the permutation test. Therefore, we first perform permutation test without any confounder control to gauge how well it works.
 
 ``` {r}
+# Permutation Test without any confounder control
 permutation.test <- function(duration, days_from_start, n=100) {
   T <- abs(cor(duration, days_from_start))
   distribution <- c()
@@ -67,6 +68,8 @@ permutation.test <- function(duration, days_from_start, n=100) {
   p_val <- (1 + sum(distribution >= T)) / (1 + n)
   return (p_val)
 }
+
+# Permute each route
 p_vals <- df %>%
   group_by(route) %>%
   summarize(p_val = permutation.test(duration, days_since_Jan1_2010))
@@ -149,10 +152,25 @@ hist(member_controlled_pvals$p_val,
 ``` {r}
 plot_route_change(df, member_controlled_pvals)
 ```
+Apart from membership status, the day of the week might also be a possible confounder. Adjusting the permutation test scheme to account for weekday/weekend can ensure certain original trends in the data, for example the proportion of weekend rides, remain unchanged.
 
+```{r}
+# Control for weekend or weekday
+weekday_controlled_pvals <- df %>%
+  group_by(route) %>%
+  summarize(p_val = permutation.task_specific_test(duration, days_since_Jan1_2010, weekend))
+```
 
+## Weekday Controlled P-value Histogram and Graphs
 
+``` {r}
+hist(weekday_controlled_pvals$p_val, 
+     xlab="p_value", main="P-value Histogram", breaks=20)
+```
 
+``` {r}
+plot_route_change(df, weekday_controlled_pvals)
+```
 
 
 ## Initial subgroupings, subject to change
