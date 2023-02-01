@@ -97,12 +97,15 @@ permutation.test <- function(duration, days_from_start, n=100) {
 p_vals <- df %>%
   group_by(route) %>%
   summarize(p_val = permutation.test(duration, days_since_Jan1_2010))
+
+# Adjust p_vals for multiple testing
+p_vals$p_adjust = p.adjust(p_vals$p_val, method = 'fdr')
 ```
 
 ## P-value Histogram and Graphs
 
 ``` {r}
-hist(p_vals$p_val, xlab="p_value", main="P-value Histogram", breaks=20)
+hist(p_vals$p_adjust, xlab="p_value", main="P-value Histogram", breaks=20)
 ```
 
 ``` {r}
@@ -168,17 +171,19 @@ group_controlled_pvals <- df %>%
   group_by(route) %>%
   summarize(p_val = permutation.task_specific_test(duration, days_since_Jan1_2010, 
                                                    paste(member, weekend, hour_of_day, temp)))
+# Adjust p_vals for multiple testing
+group_controlled_pvals$p_adjust = p.adjust(group_controlled_pvals$p_val, method = 'fdr')
 
 # Identify routes with p-val < 0.05
 significant_routes <- group_controlled_pvals %>%
-  filter(p_val < 0.05)
+  filter(p_adjust < 0.05)
 
 ```
 
 ## Membership Controlled P-value Histogram and Graphs
 
 ``` {r}
-hist(group_controlled_pvals$p_val, 
+hist(group_controlled_pvals$p_adjust, 
      xlab="p_value", main="P-value Histogram", breaks=20)
 ```
 
