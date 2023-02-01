@@ -47,7 +47,7 @@ df <- data.frame(duration = log(duration), station_start, station_end,
   # Assign Id to Route
   group_by(station_start, station_end) %>% 
   mutate(route = cur_group_id()) %>% 
-  # Filter out routes with less than 10 records
+  # Filter out routes with less than 500 records
   filter(length(as.vector(duration)) >= 500) %>% 
   ungroup()
 
@@ -146,6 +146,7 @@ $$
 
 Therefore, the distribution remains unchanged. This additional assumption that $\mathbb{P}(X \; | \; Z) = \mathbb{P}(\tilde{X} \; | \; Z)$ is reasonable in this case, as we are only saying that a member, or non-member, has the same probability of riding on any day. As such, we adjust the permutation test scheme to be task specific to account for confounders.
 
+Membership status, the day of the week (weekend or weekday), hour of the day, and temperature might be possible confounders. Adjusting the permutation test scheme to also account for these factors can ensure certain original trends in the data, for example the proportion of weekend rides, remain unchanged. We believe these are intuitive confounders as we would expect rides on Monday or Saturday, at 3am or 3pm, in 80F or 50F to be different.
 
 ``` {r}
 # Task specific Permutation Tests
@@ -162,42 +163,31 @@ permutation.task_specific_test <- function(duration, days_from_start, grouping, 
   return (p_val)
 }
 
-# Control for Membership status & a bunch of other stuff xD
-member_controlled_pvals <- df %>%
+# Control for Membership status, day of the week (weekend or weekday), hour of the day, and temperature
+group_controlled_pvals <- df %>%
   group_by(route) %>%
   summarize(p_val = permutation.task_specific_test(duration, days_since_Jan1_2010, 
-                                                   paste(member, weekend, hour_of_day, daily_avg)))
+                                                   paste(member, weekend, hour_of_day, temp)))
+
+# Identify routes with p-val < 0.05
+significant_routes <- group_controlled_pvals %>%
+  filter(p_val < 0.05)
+
 ```
 
 ## Membership Controlled P-value Histogram and Graphs
 
 ``` {r}
-hist(member_controlled_pvals$p_val, 
+hist(group_controlled_pvals$p_val, 
      xlab="p_value", main="P-value Histogram", breaks=20)
 ```
 
 ``` {r}
-plot_route_change(df, member_controlled_pvals)
+plot_route_change(df, group_controlled_pvals)
 ```
-
-## Control for weekday
-
-Apart from membership status, the day of the week might also be a possible confounder. Adjusting the permutation test scheme to account for weekday/weekend can ensure certain original trends in the data, for example the proportion of weekend rides, remain unchanged.
+After controlling for the four confounders, we identified routes with p-val < 0.05 after the permutation test. As correlation is more suitable in detecting long-term gradual change in data, we might seek other means to more efficiently identify some sudden changes.
 
 ```{r}
-# Control for weekend or weekday
-weekday_controlled_pvals <- df %>%
-  group_by(route) %>%
-  summarize(p_val = permutation.task_specific_test(duration, days_since_Jan1_2010, weekend))
+
 ```
 
-## Weekday Controlled P-value Histogram and Graphs
-
-``` {r}
-hist(weekday_controlled_pvals$p_val, 
-     xlab="p_value", main="P-value Histogram", breaks=20)
-```
-
-``` {r}
-plot_route_change(df, weekday_controlled_pvals)
-```
