@@ -1,0 +1,125 @@
+---
+title: "Regression Approach"
+author: "Group members"
+date: '2023-02-02'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+set.seed(123)
+```
+
+```{r}
+# get the data
+# Temperature Data
+temp_data <- 
+  read.table("data/temperature-data.txt", 
+           skip = 1, 
+           col.names = c('time1', 'time2', 'daily_max', 'daily_min')) %>% 
+  mutate(year = as.numeric(substring(time2, 1, 4))) %>% 
+  mutate(month = as.numeric(substring(time2, 6, 7))) %>% 
+  mutate(day = as.numeric(substring(time2, 9, 10))) %>%
+  mutate(daily_temp = (daily_max + daily_min) / 2)
+
+# Bike-share Data
+load("data/bikedata.RData")
+colnames(starttime) = c("year", "month", "day", "hour", "minute", "second")
+df <- data.frame(log_duration = log(duration), station_start, station_end, 
+                starttime, day_of_week, days_since_Jan1_2010, member) %>% 
+  # Join with Temperature Data
+  left_join(temp_data, by = c('year','month','day')) %>% 
+  # Add Weekend/weekday 
+  mutate(weekend = day_of_week %in% c("Saturday", "Sunday")) %>% 
+  # Add Hour of the Day
+  mutate(hour_of_day = cut(hour, c(-1, 6, 12, 18, 24))) %>%
+  # Add temperature buckets
+  mutate(temp = cut(daily_temp, c(20, 40, 60, 80, 100))) %>%
+  # Assign Id to Route
+  group_by(station_start, station_end) %>% 
+  mutate(route = cur_group_id()) %>% 
+  # Filter out routes with less than 500 records
+  filter(length(as.vector(log_duration)) >= 500) %>% 
+  ungroup()
+
+# Remove outliers with IQR range test
+outliers <- function(x) {
+    q25 <- quantile(x, probs=.25)
+    q75 <- quantile(x, probs=.75)
+    interval <- q75 - q25
+    x > q75 + (interval * 1.5) | x < q25 - (interval * 1.5)
+}
+# Just remove 5% data on each end
+outliers2 <- function(x) {
+  x > quantile(x, probs=0.95) | x < quantile(x, probs=0.05)
+}
+
+df <- df[!outliers2(df$log_duration), ]
+
+# drop 2011 Jan-Aug data
+df <- df %>% filter(month %in% 9:12) %>% 
+  mutate(month = factor(month))
+```
+
+```{r}
+# split data by year and membership status
+df10_m <- df %>% filter(year == 2010 & member == TRUE) %>% 
+  select(c(log_duration, year, month, day, hour, day_of_week, daily_temp, weekend, route))
+df10_nm <- df %>% filter(year == 2010 & member == FALSE)
+
+df11_m <- df %>% filter(year == 2011 & member == TRUE)
+df11_nm <- df %>% filter(year == 2011 & member == FALSE)
+```
+
+Regression formula:
+
+log_duration = month + day_of_week + hour + weekend + daily_temp
+
+## First, work on the membership data.
+
+### Step 1: create a hold-out set for 2010 (for example, 20%)
+
+```{r}
+# create hold-out set for 2010
+picked = sample(seq_len(nrow(df10_m)), size = nrow(df10_m)*0.8)
+df10_m_train =df10_m[picked,]
+df10_m_holdout =df10_m[-picked,]
+```
+
+
+### Step 2: train a regression model using 2010’s training data (without aggregation, so that the model covers a wider range for the feature values → less likely for extrapolation to happen)
+
+```{r}
+lm_2011 = lm(log_duration ~ factor(month)  + hour + weekend + daily_temp, data = df10_m_train)
+```
+
+```{r}
+summary(lm_2011)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
