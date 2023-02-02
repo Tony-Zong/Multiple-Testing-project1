@@ -8,6 +8,7 @@ output: pdf_document
 ```{r setup, include=FALSE}
 library(tidyverse)
 library(ggplot2)
+library(stargazer)
 set.seed(123)
 ```
 
@@ -59,7 +60,10 @@ df <- df[!outliers2(df$log_duration), ]
 
 # drop 2011 Jan-Aug data
 df <- df %>% filter(month %in% 9:12) %>% 
-  mutate(month = factor(month))
+  mutate(month = factor(month)) %>% 
+  mutate(day_of_week = factor(day_of_week)) %>% 
+  mutate(day_of_week = fct_relevel(day_of_week, c("Monday","Tuesday","Wednesday",
+                                                  "Thursday","Friday","Saturday","Sunday")))
 ```
 
 ```{r}
@@ -91,7 +95,7 @@ df10_m_holdout =df10_m[-picked,]
 ### Step 2: train a regression model using 2010’s training data (without aggregation, so that the model covers a wider range for the feature values → less likely for extrapolation to happen)
 
 ```{r}
-lm_2011 = lm(log_duration ~ factor(month)  + hour + weekend + daily_temp, data = df10_m_train)
+lm_2011 = lm(log_duration ~ month + hour + day_of_week + daily_temp, data = df10_m_train)
 ```
 
 ```{r}
@@ -99,8 +103,17 @@ summary(lm_2011)
 ```
 
 
+## Step 3: Aggregation on 2010 hold-out set
 
-
+```{r}
+df10_m_holdout %>% 
+  select(-c(year, weekend)) %>% 
+  group_by(route, month, day, hour) %>% 
+  mutate(log_duration = median(log_duration)) %>% 
+  ungroup() %>% 
+  distinct() %>% 
+  arrange(route, month, day, hour)
+```
 
 
 
