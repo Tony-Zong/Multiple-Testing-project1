@@ -12,7 +12,7 @@ library(stargazer)
 set.seed(123)
 ```
 
-```{r}
+```{r, cache=TRUE}
 # get the data
 # Temperature Data
 temp_data <- 
@@ -95,18 +95,18 @@ df10_m_holdout =df10_m[-picked,]
 ### Step 2: train a regression model using 2010’s training data (without aggregation, so that the model covers a wider range for the feature values → less likely for extrapolation to happen)
 
 ```{r}
-lm_2011 = lm(log_duration ~ month + hour + day_of_week + daily_temp, data = df10_m_train)
+lm_2010 = lm(log_duration ~ month + hour + day_of_week + daily_temp, data = df10_m_train)
 ```
 
 ```{r}
-summary(lm_2011)
+summary(lm_2010)
 ```
 
 
 ## Step 3: Aggregation on 2010 hold-out set
 
 ```{r}
-df10_m_holdout %>% 
+df10_m_holdout_agg <- df10_m_holdout %>% 
   select(-c(year, weekend)) %>% 
   group_by(route, month, day, hour) %>% 
   mutate(log_duration = median(log_duration)) %>% 
@@ -116,11 +116,33 @@ df10_m_holdout %>%
 ```
 
 
+## Step 4: construct prediction intervals for the hold-out data set; then, adjust the width of the prediction intervals so that it captures 95% of the true durations
 
+```{r}
+prediction_2010_holdout <- data.frame(predict(lm_2010, newdata = df10_m_holdout_agg, 
+                                   interval = "predict", level = 0.95)) %>% 
+  mutate(true_duration = df10_m_holdout_agg$log_duration)
+```
 
+The original 95% prediction intervals have a non-coverage rate of 0.0421.
 
+```{r}
+nrow(prediction_2010_holdout %>% filter(true_duration>upr | true_duration<lwr)) / nrow(prediction_2010_holdout)
+```
 
+Calibrate the prediction intervals so that it has non-coverage rate of 0.05.
 
+```{r}
+prediction_2010_holdout_adjusted = prediction_2010_holdout %>% 
+  mutate(upr_adjusted = upr + -0.047 * (upr-fit)) %>% 
+  mutate(lwr_adjusted = lwr - -0.047 * (fit-lwr))
+```
+
+```{r}
+nrow(prediction_2010_holdout_adjusted %>% filter(true_duration>upr_adjusted | true_duration<lwr_adjusted)) / nrow(prediction_2010_holdout_adjusted)
+```
+
+That is, we adjust the prediction intervals by making it narrower by a factor of (1-0.047). Now, if the 2011's data doesn't have significant change from 2010's data, using this newly adjusted prediction interval, we should also expect to see a non-coverage rate of roughly 5%.
 
 
 
