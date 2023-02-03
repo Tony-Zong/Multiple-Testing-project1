@@ -133,7 +133,7 @@ nrow(prediction_2010_holdout %>% filter(true_duration>upr | true_duration<lwr)) 
 Calibrate the prediction intervals so that it has non-coverage rate of 0.05.
 
 ```{r}
-prediction_2010_holdout_adjusted = prediction_2010_holdout %>% 
+prediction_2010_holdout_adjusted <- prediction_2010_holdout %>% 
   mutate(upr_adjusted = upr + -0.047 * (upr-fit)) %>% 
   mutate(lwr_adjusted = lwr - -0.047 * (fit-lwr))
 ```
@@ -145,12 +145,47 @@ nrow(prediction_2010_holdout_adjusted %>% filter(true_duration>upr_adjusted | tr
 That is, we adjust the prediction intervals by making it narrower by a factor of (1-0.047). Now, if the 2011's data doesn't have significant change from 2010's data, using this newly adjusted prediction interval, we should also expect to see a non-coverage rate of roughly 5%.
 
 
+## Step 5: apply the regression model on the aggregated 2011 data set (Sept. to Dec.); construct prediction intervals and adjust their width; compare this new coverage rate to the one we get from 2010 hold-out set.
+
+Again, we first aggregate 2011's data, just like we did to 2010's hold-out set.
+
+```{r}
+df11_m_agg <- df11_m %>% 
+  select(-c(year, weekend)) %>% 
+  group_by(route, month, day, hour) %>% 
+  mutate(log_duration = median(log_duration)) %>% 
+  ungroup() %>% 
+  distinct() %>% 
+  arrange(route, month, day, hour)
+```
+
+Then, we create prediction intervals:
+
+```{r}
+prediction_2011 <- data.frame(predict(lm_2010, newdata = df11_m_agg, 
+                                   interval = "predict", level = 0.95)) %>% 
+  mutate(true_duration = df11_m_agg$log_duration)
+```
+
+Next, we apply the calibration procedure to adjust the prediction intervals:
+
+```{r}
+prediction_2011_adjusted <- prediction_2011 %>% 
+  mutate(upr_adjusted = upr + -0.047 * (upr-fit)) %>% 
+  mutate(lwr_adjusted = lwr - -0.047 * (fit-lwr))
+```
+
+Finally, 
+
+```{r}
+nrow(prediction_2011_adjusted %>% filter(true_duration>upr_adjusted | true_duration<lwr_adjusted)) / nrow(prediction_2011_adjusted)
+```
 
 
+improvement:
 
-
-
-
+1. only keep routes with more than 100 rows in 2010?
+2. include route as a predictor in the model?
 
 
 
