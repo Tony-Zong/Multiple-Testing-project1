@@ -225,11 +225,91 @@ hist(group_controlled_pvals2$p_adjust,
 plot_route_change(df, group_controlled_pvals)
 ```
 
-After controlling for the four confounders, we identified routes with p-val < 0.05 after the permutation test. As correlation is more suitable in detecting long-term gradual change in data, we might seek other means to more efficiently identify some sudden changes.
+After controlling for the four confounders, we identified routes with p-val < 0.05 after the permutation test. As correlation is more suitable in detecting long-term gradual change in data and may fail to detect bumps in the middle of the data, we might seek other means to more efficiently identify bumps and changes in the data.
 
+We perform the same task specific permutation test, but changing the test statistics to mean or median instead of correlation. We will first split the df data based on days_since_Jan_1st_2010 into "earlier data" and "later data" using median split. Then compute and compare the mean or median of the two halves. Random permutation will then be performed to see if the difference between the two halves are statistically significant (for each route). 
+
+```{r}
+# Task specific Permutation Tests for mean
+permutation.task_specific_mean_test <- function(duration, days_from_start, grouping, n=100) {
+  first_half <- duration[1:round(length(duration)/2)]
+  second_half <- duration[(round(length(duration)/2) + 1):length(duration)]
+  T <- mean(first_half) - mean(second_half)
+  distribution <- c()
+  for (i in 1:n) {
+    permuted_duration <- 
+      ave(duration, grouping, 
+          FUN = function(x) if (length(x) == 1) x else sample(x))
+    distribution[i] <- mean(permuted_duration[1:round(length(permuted_duration)/2)]) - mean(permuted_duration[(round(length(duration)/2) + 1):length(duration)])
+  }
+  p_val <- (1 + sum(distribution >= T)) / (1 + n)
+  return (p_val)
+}
+
+# Control for Membership status, day of the week (2), hour of the day(2), and temperature(4)
+# paranthesis represents how many categories there are for each variable
+group_controlled_mean_pvals <- df %>%
+  group_by(route) %>%
+  summarize(p_val = permutation.task_specific_mean_test(duration, days_since_Jan1_2010, 
+                                                   paste(member, weekend, hour_of_day, temp)))
+# Adjust p_vals for multiple testing
+group_controlled_mean_pvals$p_adjust = p.adjust(group_controlled_pvals$p_val, method = 'fdr')
+
+# Identify routes with p-val < 0.05
+significant_routes_mean <- group_controlled_mean_pvals %>%
+  filter(p_adjust < 0.05)
+
+# plot p value histogram
+hist(group_controlled_mean_pvals$p_adjust, 
+     xlab="p_value", main="P-value Histogram", breaks=20)
+```
+
+```{r}
+plot_route_change(df, group_controlled_pvals)
+```
 
 
 ```{r}
+# Task specific Permutation Tests for median
+permutation.task_specific_median_test <- function(duration, days_from_start, grouping, n=100) {
+  first_half <- duration[1:round(length(duration)/2)]
+  second_half <- duration[(round(length(duration)/2) + 1):length(duration)]
+  T <- median(first_half) - median(second_half)
+  distribution <- c()
+  for (i in 1:n) {
+    permuted_duration <- 
+      ave(duration, grouping, 
+          FUN = function(x) if (length(x) == 1) x else sample(x))
+    distribution[i] <- median(permuted_duration[1:round(length(permuted_duration)/2)]) - median(permuted_duration[(round(length(duration)/2) + 1):length(duration)])
+  }
+  p_val <- (1 + sum(distribution >= T)) / (1 + n)
+  return (p_val)
+}
 
+# Control for Membership status, day of the week (2), hour of the day(2), and temperature(4)
+# paranthesis represents how many categories there are for each variable
+group_controlled_median_pvals <- df %>%
+  group_by(route) %>%
+  summarize(p_val = permutation.task_specific_median_test(duration, days_since_Jan1_2010, 
+                                                   paste(member, weekend, hour_of_day, temp)))
+# Adjust p_vals for multiple testing
+group_controlled_median_pvals$p_adjust = p.adjust(group_controlled_pvals$p_val, method = 'fdr')
+
+# Identify routes with p-val < 0.05
+significant_routes_median <- group_controlled_median_pvals %>%
+  filter(p_adjust < 0.05)
+
+# plot p value histogram
+hist(group_controlled_median_pvals$p_adjust, 
+     xlab="p_value", main="P-value Histogram", breaks=20)
+```
+```{r}
+# check the common routes detected by correlation, mean, and median methods
+corr_routes <- subset(group_controlled_pvals, p_adjust < 0.05)
+mean_routes <- subset(group_controlled_mean_pvals, p_adjust < 0.05)
+median_routes <- subset(group_controlled_median_pvals, p_adjust < 0.05)
+
+common_routes <- intersect(mean_routes, median_routes)
+common_routes <- intersect(common_routes, corr_routes)
 ```
 
