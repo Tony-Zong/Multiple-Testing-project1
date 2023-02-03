@@ -12,6 +12,8 @@ library(stargazer)
 set.seed(123)
 ```
 
+Initial data cleaning:
+
 ```{r, cache=TRUE}
 # get the data
 # Temperature Data
@@ -40,6 +42,7 @@ df <- data.frame(log_duration = log(duration), station_start, station_end,
   # Assign Id to Route
   group_by(station_start, station_end) %>% 
   mutate(route = cur_group_id()) %>% 
+  mutate(route = factor(route)) %>% 
   # Filter out routes with less than 500 records
   filter(length(as.vector(log_duration)) >= 500) %>% 
   ungroup()
@@ -66,13 +69,26 @@ df <- df %>% filter(month %in% 9:12) %>%
                                                   "Thursday","Friday","Saturday","Sunday")))
 ```
 
+
+We want to make sure for each route we train a model on, there is enough data.
+```{r}
+busy_routes_m_df <- df %>% 
+  filter(year==2010 & member == T) %>% 
+  group_by(route) %>% 
+  summarise(ride_counts = n()) %>% 
+  filter(ride_counts >= 50)
+
+busy_routes_m <- busy_routes_m_df$route
+```
+
+
 ```{r}
 # split data by year and membership status
-df10_m <- df %>% filter(year == 2010 & member == TRUE) %>% 
+df10_m <- df %>% filter(year == 2010 & member == TRUE & route %in% busy_routes_m) %>% 
   select(c(log_duration, year, month, day, hour, day_of_week, daily_temp, weekend, route))
 df10_nm <- df %>% filter(year == 2010 & member == FALSE)
 
-df11_m <- df %>% filter(year == 2011 & member == TRUE)
+df11_m <- df %>% filter(year == 2011 & member == TRUE & route %in% busy_routes_m)
 df11_nm <- df %>% filter(year == 2011 & member == FALSE)
 ```
 
@@ -95,7 +111,7 @@ df10_m_holdout =df10_m[-picked,]
 ### Step 2: train a regression model using 2010’s training data (without aggregation, so that the model covers a wider range for the feature values → less likely for extrapolation to happen)
 
 ```{r}
-lm_2010 = lm(log_duration ~ month + hour + day_of_week + daily_temp, data = df10_m_train)
+lm_2010 = lm(log_duration ~ month + hour + day_of_week + daily_temp + route, data = df10_m_train)
 ```
 
 ```{r}
@@ -119,30 +135,37 @@ df10_m_holdout_agg <- df10_m_holdout %>%
 ## Step 4: construct prediction intervals for the hold-out data set; then, adjust the width of the prediction intervals so that it captures 95% of the true durations
 
 ```{r}
+train_routes <- unique(df10_m_train$route)
+
+df10_m_holdout_agg <- df10_m_holdout_agg %>% 
+  filter(route %in% train_routes)
+```
+
+```{r}
 prediction_2010_holdout <- data.frame(predict(lm_2010, newdata = df10_m_holdout_agg, 
                                    interval = "predict", level = 0.95)) %>% 
   mutate(true_duration = df10_m_holdout_agg$log_duration)
 ```
 
-The original 95% prediction intervals have a non-coverage rate of 0.0421.
+The original 95% prediction intervals have a non-coverage rate of 0.0488757:
 
 ```{r}
 nrow(prediction_2010_holdout %>% filter(true_duration>upr | true_duration<lwr)) / nrow(prediction_2010_holdout)
 ```
 
-Calibrate the prediction intervals so that it has non-coverage rate of 0.05.
+Calibrate the prediction intervals so that it has non-coverage rate of 0.05:
 
 ```{r}
 prediction_2010_holdout_adjusted <- prediction_2010_holdout %>% 
-  mutate(upr_adjusted = upr + -0.047 * (upr-fit)) %>% 
-  mutate(lwr_adjusted = lwr - -0.047 * (fit-lwr))
+  mutate(upr_adjusted = upr + -0.016 * (upr-fit)) %>% 
+  mutate(lwr_adjusted = lwr - -0.016 * (fit-lwr))
 ```
 
 ```{r}
 nrow(prediction_2010_holdout_adjusted %>% filter(true_duration>upr_adjusted | true_duration<lwr_adjusted)) / nrow(prediction_2010_holdout_adjusted)
 ```
 
-That is, we adjust the prediction intervals by making it narrower by a factor of (1-0.047). Now, if the 2011's data doesn't have significant change from 2010's data, using this newly adjusted prediction interval, we should also expect to see a non-coverage rate of roughly 5%.
+That is, we adjust the prediction intervals by making it narrower by a factor of (1-0.016). Now, if the 2011's data doesn't have significant change from 2010's data, using this newly adjusted prediction interval, we should also expect to see a non-coverage rate of roughly 5%.
 
 
 ## Step 5: apply the regression model on the aggregated 2011 data set (Sept. to Dec.); construct prediction intervals and adjust their width; compare this new coverage rate to the one we get from 2010 hold-out set.
@@ -156,6 +179,7 @@ df11_m_agg <- df11_m %>%
   mutate(log_duration = median(log_duration)) %>% 
   ungroup() %>% 
   distinct() %>% 
+  filter(route %in% train_routes) %>% 
   arrange(route, month, day, hour)
 ```
 
@@ -171,8 +195,8 @@ Next, we apply the calibration procedure to adjust the prediction intervals:
 
 ```{r}
 prediction_2011_adjusted <- prediction_2011 %>% 
-  mutate(upr_adjusted = upr + -0.047 * (upr-fit)) %>% 
-  mutate(lwr_adjusted = lwr - -0.047 * (fit-lwr))
+  mutate(upr_adjusted = upr + -0.016 * (upr-fit)) %>% 
+  mutate(lwr_adjusted = lwr - -0.016 * (fit-lwr))
 ```
 
 Finally, 
@@ -182,10 +206,6 @@ nrow(prediction_2011_adjusted %>% filter(true_duration>upr_adjusted | true_durat
 ```
 
 
-improvement:
-
-1. only keep routes with more than 100 rows in 2010?
-2. include route as a predictor in the model?
 
 
 
