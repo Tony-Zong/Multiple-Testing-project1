@@ -19,8 +19,6 @@ set.seed(123)
 
 # Load Data and Data Cleaing
 
-Might need some further cleaning
-
 ```{r}
 # Remove outliers with IQR range test
 outliers <- function(x) {
@@ -157,11 +155,48 @@ Therefore, the distribution remains unchanged. This additional assumption that $
 Membership status, the day of the week (weekend or weekday), hour of the day, and temperature might be possible confounders. Adjusting the permutation test scheme to also account for these factors can ensure certain original trends in the data, for example the proportion of weekend rides, remain unchanged. We believe these are intuitive confounders as we would expect rides on Monday or Saturday, at 3am or 3pm, in 80F or 50F to be different.
 
 # Plot subsets distributions
-We first plot to compare between the overall duration for member vs non-member, weekend vs weekday, day vs night, and temperature intervals to intuitively see if there's a difference.
+We first plot to compare between the overall duration for member vs non-member, weekend vs weekday, day vs night, and temperature intervals to see if there's a difference in duration in these group categories.
 ```{r}
+# membership boxplot
+ggplot(data=df, mapping=aes(x=member, y=log_duration, fill=member))+
+  stat_boxplot(geom = "errorbar",
+               width = 0.20) + 
+  geom_boxplot()
 
 ```
+We can see that members overall has a smaller log_duration than non-members, meaning members spend shorter time riding overall. 
+```{r}
+# weekday boxplot
+ggplot(data=df, mapping=aes(x=day_of_week, y=log_duration, fill=day_of_week))+
+  stat_boxplot(geom = "errorbar",
+               width = 0.20) + 
+  geom_boxplot()
 
+# weekend vs weekday boxplot
+ggplot(data=df, mapping=aes(x=weekend, y=log_duration, fill=weekend))+
+  stat_boxplot(geom = "errorbar",
+               width = 0.20) + 
+  geom_boxplot()
+```
+We can see that Saturday and Sunday, or weekend in general, have larger log_duration compared to the five other weekdays, suggesting people spend longer time to ride on weekends in general.
+
+
+```{r}
+# hour of the day boxplot
+ggplot(data=df, mapping=aes(x=hour_of_day_2, y=log_duration, fill=hour_of_day_2))+
+  stat_boxplot(geom = "errorbar",
+               width = 0.20) + 
+  geom_boxplot()
+```
+There is little difference in log_duration between different hours, but it seems that duration is a little longer for afternoons.
+```{r}
+# temperature boxplot
+ggplot(data=df, mapping=aes(x=temp, y=log_duration, fill=temp))+
+  stat_boxplot(geom = "errorbar",
+               width = 0.20) + 
+  geom_boxplot()
+```
+There is also little difference in log_duration across different temperatures, but it seems that hotter temperature relates with a slightly longer duration.
 
 ``` {r}
 # Task specific Permutation Tests
