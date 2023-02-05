@@ -47,7 +47,7 @@ df <- data.frame(log_duration = log(duration), station_start, station_end,
   mutate(temp = cut(daily_temp, c(20, 40, 60, 80, 100))) %>%
   # Assign Id to Route
   group_by(station_start, station_end) %>% 
-  mutate(route = cur_group_id()) %>% 
+  mutate(route = paste0(station_start, "-", station_end)) %>% 
   mutate(route = factor(route)) %>% 
   # Filter out routes with less than 500 records
   filter(length(log_duration) >= 500 & !outliers(log_duration)) %>% 
@@ -73,6 +73,15 @@ busy_routes_m_df <- df %>%
   filter(ride_counts >= 100)
 
 busy_routes_m <- busy_routes_m_df$route
+
+
+busy_routes_m_df_2010 <- df %>% 
+  filter(year==2010 & member == T) %>% 
+  group_by(route) %>% 
+  summarise(ride_counts = n()) %>% 
+  filter(ride_counts >= 100)
+
+busy_routes_m_2010 <- busy_routes_m_df_2010$route
 ```
 
 
@@ -84,7 +93,7 @@ busy_routes_m <- busy_routes_m_df$route
 df11_m <- df %>% filter(year == 2011 & member == TRUE & route %in% busy_routes_m) %>% 
   select(c(log_duration, year, month, day, hour, day_of_week, daily_temp, weekend, route))
 
-df10_m <- df %>% filter(year == 2010 & member == TRUE & route %in% busy_routes_m)
+df10_m <- df %>% filter(year == 2010 & member == TRUE & route %in% busy_routes_m & route %in% busy_routes_m_2010)
 
 #df10_nm <- df %>% filter(year == 2010 & member == FALSE)
 #df11_nm <- df %>% filter(year == 2011 & member == FALSE)
@@ -184,7 +193,8 @@ noncoverage_rates_2011 <- prediction_2011_holdout_adjusted %>%
   ungroup() %>% 
   select(c(route, total_ride_count, noncoverage_count, noncoverage_proportion)) %>% 
   distinct() %>% 
-  arrange(desc(noncoverage_proportion))
+  arrange(desc(noncoverage_proportion)) %>% 
+  filter(route %in% busy_routes_m_2010)
 
 noncoverage_rates_2011
 ```
@@ -251,7 +261,7 @@ noncoverage_rates_2010
 ```{r message=FALSE, warning=FALSE}
 p_vals = c()
 
-for (a_route in train_routes) {
+for (a_route in busy_routes_m_2010) {
 
   route_info_2011 = noncoverage_rates_2011 %>% filter(`route` == a_route)
   route_info_2010 = noncoverage_rates_2010 %>% filter(`route` == a_route)
@@ -282,7 +292,7 @@ min(na.omit(p_vals))
 ```
 
 ```{r}
-final = data.frame(train_routes,p_vals)
+final = data.frame(busy_routes_m_2010,p_vals)
 final %>% filter(p_vals < 0.05)
 ```
 
