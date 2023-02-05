@@ -26,6 +26,14 @@ temp_data <-
   mutate(day = as.numeric(substring(time2, 9, 10))) %>%
   mutate(daily_temp = (daily_max + daily_min) / 2)
 
+# Remove outliers with IQR range test
+outliers <- function(x) {
+    q25 <- quantile(x, probs=.25)
+    q75 <- quantile(x, probs=.75)
+    interval <- q75 - q25
+    x > q75 + (interval * 1.5) | x < q25 - (interval * 1.5)
+}
+
 # Bike-share Data
 load("data/bikedata.RData")
 colnames(starttime) = c("year", "month", "day", "hour", "minute", "second")
@@ -44,22 +52,8 @@ df <- data.frame(log_duration = log(duration), station_start, station_end,
   mutate(route = cur_group_id()) %>% 
   mutate(route = factor(route)) %>% 
   # Filter out routes with less than 500 records
-  filter(length(as.vector(log_duration)) >= 500) %>% 
+  filter(length(log_duration) >= 500 & !outliers(log_duration)) %>% 
   ungroup()
-
-# Remove outliers with IQR range test
-outliers <- function(x) {
-    q25 <- quantile(x, probs=.25)
-    q75 <- quantile(x, probs=.75)
-    interval <- q75 - q25
-    x > q75 + (interval * 1.5) | x < q25 - (interval * 1.5)
-}
-# Just remove 5% data on each end
-outliers2 <- function(x) {
-  x > quantile(x, probs=0.95) | x < quantile(x, probs=0.05)
-}
-
-df <- df[!outliers2(df$log_duration), ]
 
 # drop 2011 Jan-Aug data
 df <- df %>% filter(month %in% 9:12) %>% 
