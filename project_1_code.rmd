@@ -62,7 +62,7 @@ df <- data.frame(duration = log(duration), station_start, station_end,
   mutate(temp_2 = cut(daily_avg, c(20, 30, 40, 50, 60, 70, 80, 90, 100))) %>%
   # Assign Id to Route
   group_by(station_start, station_end) %>% 
-  mutate(route = cur_group_id()) %>% 
+  mutate(route = paste0(station_start, "-", station_end)) %>% 
   # Filter out routes with less than 500 records
   filter(length(duration) >= 500, !outliers(duration)) %>% 
   ungroup()
