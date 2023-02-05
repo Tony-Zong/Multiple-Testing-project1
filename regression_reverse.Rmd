@@ -62,7 +62,9 @@ df <- df %>% filter(month %in% 9:12) %>%
 ```
 
 
-We want to make sure for each route we train a model on, there is enough data. Since we use 2010 data to build the regression model, we filter for "busy" routes based on 2010's data. Here, we decide to only consider the routes with more than 100 rides during September - December in 2010.
+We want to make sure for each route we train a model on, there is enough data. Since we use 2011 data to build the regression model, we filter for "busy" routes based on 2011's data. Here, we decide to only consider the routes with more than 100 rides during September - December in 2011.
+
+We also filter for routes that have more than 50 routes in 2010.
 
 
 ```{r}
@@ -105,18 +107,18 @@ Regression formula:
 log_duration ~ month + day_of_week + factor(hour) + weekend + daily_temp + route
 
 
-### Step 1: create a hold-out set for 2010 (for example, 20%)
+### Step 1: create a hold-out set for 2011 (for example, 20%)
 
 
 ```{r}
-# create hold-out set for 2010
+# create hold-out set for 2011
 picked = sample(seq_len(nrow(df11_m)), size = nrow(df11_m)*0.8)
 df11_m_train =df11_m[picked,]
 df11_m_holdout =df11_m[-picked,]
 ```
 
 
-### Step 2: train a regression model using 2010’s training data (without aggregation, so that the model covers a wider range for the feature values → less likely for extrapolation to happen)
+### Step 2: train a regression model using 2011’s training data (without aggregation, so that the model covers a wider range for the feature values → less likely for extrapolation to happen)
 
 ```{r}
 lm_2011 = lm(log_duration ~ month + hour + day_of_week + daily_temp + route, data = df11_m_train)
@@ -127,9 +129,9 @@ summary(lm_2011)
 ```
 
 
-## Step 3: Aggregation on 2010 hold-out set
+## Step 3: Aggregation on 2011 hold-out set
 
-We perform aggregation on the 2010 hold-out data set by grouping rides for each route from the same hour together. We do the aggregation by taking median. We also keep track of the number of samples represented by each row in this aggregated data frame. This will be used as weights when we construct the prediction intervals in the net step.
+We perform aggregation on the 2011 hold-out data set by grouping rides for each route from the same hour together. We do the aggregation by taking median. We also keep track of the number of samples represented by each row in this aggregated data frame. This will be used as weights when we construct the prediction intervals in the net step.
 
 
 ```{r}
@@ -155,7 +157,7 @@ df11_m_holdout_agg <- df11_m_holdout_agg %>%
   filter(route %in% train_routes)
 ```
 
-Then, we make predictions for the 2010 hold-out set, and construct 95% prediction intervals adjusted by weights.
+Then, we make predictions for the 2011 hold-out set, and construct 95% prediction intervals adjusted by weights.
 
 ```{r}
 prediction_2011_holdout <- data.frame(predict(lm_2011, newdata = df11_m_holdout_agg, 
@@ -164,7 +166,7 @@ prediction_2011_holdout <- data.frame(predict(lm_2011, newdata = df11_m_holdout_
   mutate(true_duration = df11_m_holdout_agg$log_duration)
 ```
 
-The original 95% prediction intervals have a non-coverage rate of 0.04307692:
+The original 95% prediction intervals have a non-coverage rate of 0.04065162:
 
 ```{r}
 nrow(prediction_2011_holdout %>% filter(true_duration>upr | true_duration<lwr)) / nrow(prediction_2011_holdout)
@@ -200,12 +202,12 @@ noncoverage_rates_2011
 ```
 
 
-That is, we adjust the prediction intervals by making it narrower by a factor of (1-0.07). Now, if the 2011's data doesn't have significant change from 2010's data, using this newly adjusted prediction interval, we should also expect to see a non-coverage rate of roughly 5%.
+That is, we adjust the prediction intervals by making it narrower by a factor of (1-0.07). Now, if the 2010's data doesn't have significant change from 2011's data, using this newly adjusted prediction interval, we should also expect to see a non-coverage rate of roughly 5%.
 
 
-## Step 5: apply the regression model on the aggregated 2011 data set (Sept. to Dec.); construct prediction intervals and adjust their width; compare this new coverage rate to the one we get from 2010 hold-out set.
+## Step 5: apply the regression model on the aggregated 2010 data set (Sept. to Dec.); construct prediction intervals and adjust their width; compare this new coverage rate to the one we get from 2011 hold-out set.
 
-Again, we first aggregate 2011's data, just like we did to 2010's hold-out set.
+Again, we first aggregate 2011's data, just like we did to 2011's hold-out set.
 
 ```{r}
 df10_m_agg <- df10_m %>% 
@@ -236,7 +238,7 @@ prediction_2010_adjusted <- prediction_2010 %>%
   mutate(lwr_adjusted = lwr - -0.068 * (fit-lwr))
 ```
 
-Finally, we get an average non-coverage rate of 0.05543958, which is greater than 0.05. 
+Finally, we get an overall non-coverage rate of 0.07671405, which is greater than 0.05. 
 
 ```{r}
 nrow(prediction_2010_adjusted %>% filter(true_duration>upr_adjusted | true_duration<lwr_adjusted)) / nrow(prediction_2010_adjusted)
