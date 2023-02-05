@@ -25,7 +25,6 @@ temp_data <-
   mutate(month = as.numeric(substring(time2, 6, 7))) %>% 
   mutate(day = as.numeric(substring(time2, 9, 10))) %>%
   mutate(daily_temp = (daily_max + daily_min) / 2)
-
 # Remove outliers with IQR range test
 outliers <- function(x) {
     q25 <- quantile(x, probs=.25)
@@ -33,7 +32,6 @@ outliers <- function(x) {
     interval <- q75 - q25
     x > q75 + (interval * 1.5) | x < q25 - (interval * 1.5)
 }
-
 # Bike-share Data
 load("data/bikedata.RData")
 colnames(starttime) = c("year", "month", "day", "hour", "minute", "second")
@@ -54,7 +52,6 @@ df <- data.frame(log_duration = log(duration), station_start, station_end,
   # Filter out routes with less than 500 records
   filter(length(log_duration) >= 500 & !outliers(log_duration)) %>% 
   ungroup()
-
 # drop 2011 Jan-Aug data
 df <- df %>% filter(month %in% 9:12) %>% 
   mutate(month = factor(month)) %>% 
@@ -168,13 +165,30 @@ Calibrate the prediction intervals so that it has non-coverage rate of 0.05:
 
 ```{r}
 prediction_2010_holdout_adjusted <- prediction_2010_holdout %>% 
-  mutate(upr_adjusted = upr + -0.07 * (upr-fit)) %>% 
-  mutate(lwr_adjusted = lwr - -0.07 * (fit-lwr))
+  mutate(upr_adjusted = upr + -0.049 * (upr-fit)) %>% 
+  mutate(lwr_adjusted = lwr - -0.049 * (fit-lwr))
 ```
 
 ```{r}
 nrow(prediction_2010_holdout_adjusted %>% filter(true_duration>upr_adjusted | true_duration<lwr_adjusted)) / nrow(prediction_2010_holdout_adjusted)
 ```
+
+
+```{r}
+noncoverage_rates_2010 <- prediction_2010_holdout_adjusted %>% 
+  mutate(route = df10_m_holdout_agg$route) %>% 
+  group_by(route) %>% 
+  mutate(total_ride_count = n()) %>% 
+  mutate(noncoverage_count = sum(true_duration>upr_adjusted | true_duration<lwr_adjusted)) %>% 
+  mutate(noncoverage_proportion = noncoverage_count / total_ride_count) %>% 
+  ungroup() %>% 
+  select(c(route, total_ride_count, noncoverage_count, noncoverage_proportion)) %>% 
+  distinct() %>% 
+  arrange(desc(noncoverage_proportion))
+
+noncoverage_rates_2010
+```
+
 
 That is, we adjust the prediction intervals by making it narrower by a factor of (1-0.07). Now, if the 2011's data doesn't have significant change from 2010's data, using this newly adjusted prediction interval, we should also expect to see a non-coverage rate of roughly 5%.
 
@@ -208,29 +222,70 @@ Next, we apply the calibration procedure to adjust the prediction intervals:
 
 ```{r}
 prediction_2011_adjusted <- prediction_2011 %>% 
-  mutate(upr_adjusted = upr + -0.07 * (upr-fit)) %>% 
-  mutate(lwr_adjusted = lwr - -0.07 * (fit-lwr))
+  mutate(upr_adjusted = upr + -0.049 * (upr-fit)) %>% 
+  mutate(lwr_adjusted = lwr - -0.049 * (fit-lwr))
 ```
 
-Finally, we get a non-coverage rate of 0.06093166, which is greater than 0.05. 
+Finally, we get an average non-coverage rate of 0.05543958, which is greater than 0.05. 
 
 ```{r}
 nrow(prediction_2011_adjusted %>% filter(true_duration>upr_adjusted | true_duration<lwr_adjusted)) / nrow(prediction_2011_adjusted)
 ```
 
+
 ```{r}
-prediction_2011_adjusted %>% 
+noncoverage_rates_2011 <- prediction_2011_adjusted %>% 
   group_by(route) %>% 
   mutate(total_ride_count = n()) %>% 
-  ungroup() %>% 
-  filter(true_duration>upr_adjusted | true_duration<lwr_adjusted) %>% 
-  select(c(route, total_ride_count)) %>% 
-  group_by(route) %>% 
-  mutate(noncoverage_count = n()) %>% 
-  ungroup() %>% 
-  distinct() %>% 
+  mutate(noncoverage_count = sum(true_duration>upr_adjusted | true_duration<lwr_adjusted)) %>% 
   mutate(noncoverage_proportion = noncoverage_count / total_ride_count) %>% 
+  ungroup() %>% 
+  select(c(route, total_ride_count, noncoverage_count, noncoverage_proportion)) %>% 
+  distinct() %>% 
   arrange(desc(noncoverage_proportion))
+
+noncoverage_rates_2011
+```
+
+
+```{r message=FALSE, warning=FALSE}
+p_vals = c()
+
+for (a_route in train_routes) {
+
+  route_info_2010 = noncoverage_rates_2010 %>% filter(`route` == a_route)
+  route_info_2011 = noncoverage_rates_2011 %>% filter(`route` == a_route)
+  
+  num_noncoverage_2010 = route_info_2010$noncoverage_count
+  total_2010 = route_info_2010$total_ride_count 
+  
+  num_noncoverage_2011 = route_info_2011$noncoverage_count
+  total_2011 = route_info_2011$total_ride_count 
+  
+  res = prop.test(c(num_noncoverage_2010,num_noncoverage_2011),
+            c(total_2010,total_2011),
+            alternative = "less")
+  p_val = res$p.value
+  
+  p_vals = append(p_vals, p_val)
+}
+```
+
+
+```{r}
+p_vals = p.adjust(p_vals, method = 'fdr')
+
+```
+
+```{r}
+min(na.omit(p_vals))
+```
+
+
+
+
+```{r}
+
 ```
 
 
