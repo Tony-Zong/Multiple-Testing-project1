@@ -43,6 +43,305 @@ temp_data <-
   mutate(year = as.numeric(substring(time2, 1, 4)), 
          month = as.numeric(substring(time2, 6, 7)), 
          day = as.numeric(substring(time2, 9, 10)), 
+         daily_temp = (daily_max + daily_min) / 2)
+
+# Bike-share Data
+load("data/bikedata.RData")
+colnames(starttime) = c("year", "month", "day", "hour", "minute", "second")
+df <- data.frame(log_duration = log(duration), station_start, station_end, 
+                starttime, day_of_week, days_since_Jan1_2010, member) %>% 
+  # Join with Temperature Data
+  left_join(temp_data, by = c('year','month','day')) %>% 
+  # Add Weekend/weekday 
+  mutate(weekend = day_of_week %in% c("Saturday", "Sunday")) %>% 
+  # Add Hour of the Day (with different degree of preciseness)
+  mutate(hour_of_day = cut(hour, c(-1, 12, 24))) %>%
+  mutate(hour_of_day_2 = cut(hour, c(-1, 6, 12, 18, 24))) %>%
+  # Add temperature buckets (with different degree of preciseness)
+  mutate(temp = cut(daily_temp, c(20, 40, 60, 80, 100))) %>%
+  mutate(temp_2 = cut(daily_temp, c(20, 30, 40, 50, 60, 70, 80, 90, 100))) %>%
+  # Assign Id to Route
+  group_by(station_start, station_end) %>% 
+  mutate(route = paste0(station_start, "-", station_end)) %>% 
+  # Filter out routes with less than 500 records
+  filter(length(log_duration) >= 500, !outliers(log_duration)) %>% 
+  ungroup()
+
+# Drop unnecessary columns
+df <- subset(df, select=-c(station_start, station_end, year, month, day, 
+                           minute, second, time1, time2, daily_max, daily_min))
+```
+
+## Data Distribution
+
+```{r}
+df %>%
+  group_by(route) %>%
+  summarize(num_rides = length(log_duration)) %>%
+  ggplot(aes(x=num_rides)) +
+  geom_histogram()
+```
+# Permutation test without any control
+
+For each route, we are interested in the question if there is any change in ride duration at any point over the span of 2010-2011. In the language of hypothesis testing, this translates to the hypothesis that ride duration is independent of the days_since_Jan1_2010. Rejecting this hypothesis would mean that ride duration depends on the date - in other words change over time. We observe that the absolute value of correlation between duration and days_since_Jan1_2010 would be relatively small if the hypothesis is true and large otherwise, making it a good candidate statistic for the permutation test. Therefore, we first perform permutation test without any confounder control to gauge how well it works.
+
+
+``` {r}
+permutation.test <- function(duration, days_from_start, n=100) {
+  T <- abs(cor(duration, days_from_start))
+  distribution <- c()
+  for (i in 1:n) {
+    distribution[i] <- abs(cor(sample(duration, replace=FALSE), days_from_start))
+  }
+  p_val <- (1 + sum(distribution >= T)) / (1 + n)
+  return (p_val)
+}
+p_vals <- df %>%
+  group_by(route) %>%
+  summarize(p_val = permutation.test(log_duration, days_since_Jan1_2010))
+
+# Adjust p_vals for multiple testing
+p_vals$p_adjust = p.adjust(p_vals$p_val, method = 'fdr')
+```
+
+## P-value Histogram and Graphs
+
+``` {r}
+hist(p_vals$p_adjust, xlab="p_value", main="P-value Histogram", breaks=20)
+```
+We plot the top routes that have the strongest signals and see if they indeed exhibit some kind of change.
+
+``` {r}
+plot_route_change <- function(df, p_vals, n=4) {
+  sorted_pvals <- p_vals[order(p_vals$p_val), ]
+  par(mfrow=c(round(n/2),2))
+  for (i in 1:n) {
+    route_df <- filter(df, route == sorted_pvals$route[i])
+    plot(route_df$days_since_Jan1_2010, exp(route_df$log_duration),
+         xlab="Days since Jan 1st 2010", ylab="Duration", 
+         main=paste("Route ID = ", sorted_pvals$route[i]))
+  }
+}
+plot_route_change(df, p_vals)
+```
+
+# Task-Specific Permutation Tests
+
+However, with confounding variables in the play, a simple permutation scheme will not suffice. For example, it is plausible that members generally ride faster than non-members (who may not be frequent riders), and so the correlation between ride duration and date is confounded by the membership status. To account for these many possible confounders, we use a task-specific permutation testing scheme.
+
+Let $X_j$ be the explanatory variables, and $Y$ be the response, which in our case is the ride duration. Suppose $X_0$ is the days_since_Jan1_2010, what we are actually interested in is the following hypothesis test:
+$$ H_0: Y \perp \!\!\! \perp X_0 \; | \; X_{-0} \text{ = all other explanatory variables}$$
+However, due to limitations in the dataset, it is infeasible to control for all explanatory variables, as we don't have enough data for each possible variable combinations, and we have not collected every possible ambient variables, such as weather, and the riders' ages. Therefore, we opted to control for a limit set of possible confounders. In particular, we control for the following variables:
+
+- membership
+- day of the week
+- hour of the day
+- temperature
+
+During the permutation tests, we only permute data that has the same membership status, is on the same day of the week, and so on. If we let $X = $ days_from_Jan1_2010, $Z = $ (membership status, day, hour, temperature), $Y = $ duration, and $\tilde{X}$ be another days_from_Jan1_2010 data that got permuted, then under the null hypothesis that 
+$$ H_0: Y \perp \!\!\! \perp X \; | \; Z $$ 
+and an additional assumption that $\mathbb{P}(X \; | \; Z) = \mathbb{P}(\tilde{X} \; | \; Z)$, we have
+
+$$
+\begin{aligned}
+\mathbb{P}(X,Y,Z) &= \mathbb{P}(X \; | \; Y, Z) \mathbb{P}(Y,Z) \\
+&= \mathbb{P}(X \; | \; Z) \mathbb{P}(Y,Z) \qquad \text{Conditional Independence}\\
+&= \mathbb{P}(\tilde{X} \; | \; Z) \mathbb{P}(Y,Z) \\
+&= \mathbb{P}(\tilde{X}, Y, Z)
+\end{aligned}
+$$
+
+Therefore, the distribution remains unchanged. This additional assumption that $\mathbb{P}(X \; | \; Z) = \mathbb{P}(\tilde{X} \; | \; Z)$ is reasonable in this case, as we are only saying that a member, or non-member, has the same probability of riding on any day (no further knowledge). As such, we adjust the permutation test scheme to be task specific to account for confounders.
+
+Membership status, the day of the week (weekend or weekday), hour of the day, and temperature might be possible confounders. Adjusting the permutation test scheme to also account for these factors can ensure certain original trends in the data, for example the proportion of weekend rides, remain unchanged. We believe these are intuitive confounders as we would expect rides on Monday or Saturday, at 3am or 3pm, in 80F or 50F to be different.
+
+``` {r}
+# Task specific Permutation Tests
+permutation.task_specific_test <- function(duration, days_from_start, compute_t, grouping, n=100) {
+  t <- compute_t(duration, days_from_start)
+  distribution <- c()
+  for (i in 1:n) {
+    permuted_duration <- 
+      ave(duration, grouping, 
+          FUN = function(x) if (length(x) == 1) x else sample(x))
+    distribution[i] <- compute_t(permuted_duration, days_from_start)
+  }
+  p_val <- (1 + sum(distribution >= t)) / (1 + n)
+  return (p_val)
+}
+
+# Absolute value of correlation as the statistic
+abscor_t <- function(log_duration, days_from_start) abs(cor(log_duration, days_from_start))
+
+# Control for Membership status, day of the week (2), hour of the day(2), and temperature(4)
+# parenthesis represents how many categories there are for each variable
+group_controlled_pvals <- df %>%
+  group_by(route) %>%
+  summarize(p_val = permutation.task_specific_test(log_duration, days_since_Jan1_2010, abscor_t, 
+                                                   paste(member, weekend, hour_of_day, temp))) %>%
+  # Adjust p_vals for multiple testing
+  mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
+
+# Identify routes with p-val < 0.05
+significant_routes <- group_controlled_pvals %>% filter(p_adjust < 0.05)
+```
+
+## Task specific P-value Histogram and Graphs
+
+``` {r}
+# P-value distribution
+hist(group_controlled_pvals$p_adjust, 
+     xlab="p_value", main="P-value Histogram", breaks=20)
+
+# Top Routes
+plot_route_change(df, group_controlled_pvals)
+```
+
+# Finer Bucketing of Data
+
+We then filter the data to only keep routes with more than 1000 records and apply a finer grouping. Keeping only the routes with more data (>1000), we are able to apply a finer grouping method because there is enough data to ensure the power of the test is still strong even when grouping becomes more specific. Weekdays changed from 2 categories (weekday/weekend) to 7 categories, temperature changed from 20F intervals to 10F intervals, and hour changed from 2 12-hour groups to 4 6-hour groups 
+
+```{r}
+# FINER control for Membership status, day of the week (7), hour of the day (6), and temperature (8)
+# parenthesis represents how many categories are for each variable
+
+# filter out the routes with more than 1000 data to run the finer control
+df_fine <- df %>%
+  group_by(route) %>% 
+  filter(length(log_duration) >= 1000) %>% 
+  ungroup()
+
+# permutation test with finer controls
+group_controlled_pvals2 <- df %>%
+  group_by(route) %>%
+  summarize(p_val = permutation.task_specific_test(log_duration, days_since_Jan1_2010, abscor_t, 
+                                                   paste(member, day_of_week, hour_of_day_2, temp_2))) %>%
+  mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
+
+significant_routes <- group_controlled_pvals2 %>% filter(p_adjust < 0.05)
+
+# Plot P-value histogram and top routes
+hist(group_controlled_pvals2$p_adjust, 
+     xlab="p_value", main="P-value Histogram", breaks=20)
+
+plot_route_change(df, group_controlled_pvals)
+```
+
+# Exploration of Better statistics to detect sudden changes
+
+As correlation is more suitable in detecting long-term gradual change in data and not as powerful for detecting bumps, we explore other statistics to better identify bumps and changes in the data.
+
+We perform the same task specific permutation test, but change the test statistics to mean or median instead of correlation. We split the data into the "earlier half" and the "later half" based on days_since_Jan_1st_2010. We then compute and compare the mean or median of the two halves. Permutation test will then be performed to see if the difference between the two halves is indeed statistically significant (for each route). 
+
+## Using the mean statistic
+
+```{r}
+# Task specific permutation tests for mean
+mean_t <- function(duration, days_from_start) {
+  first_half <- duration[1:round(length(duration)/2)]
+  second_half <- duration[(round(length(duration)/2) + 1):length(duration)]
+  abs(mean(first_half) - mean(second_half))
+}
+
+group_controlled_mean_pvals <- df %>%
+  group_by(route) %>%
+  summarize(p_val = permutation.task_specific_test(log_duration, days_since_Jan1_2010, mean_t, 
+                                                   paste(member, weekend, hour_of_day, temp))) %>%
+  mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
+
+significant_routes_mean <- group_controlled_mean_pvals %>%
+  filter(p_adjust < 0.05)
+
+hist(group_controlled_mean_pvals$p_adjust, 
+     xlab="p_value", main="P-value Histogram", breaks=20)
+plot_route_change(df, group_controlled_mean_pvals)
+```
+
+## Using the median statistic
+
+```{r}
+# Task specific permutation tests for median
+median_t <- function(duration, days_from_start) {
+  first_half <- duration[1:round(length(duration)/2)]
+  second_half <- duration[(round(length(duration)/2) + 1):length(duration)]
+  median(first_half) - median(second_half)
+}
+
+group_controlled_median_pvals <- df %>%
+  group_by(route) %>%
+  summarize(p_val = permutation.task_specific_test(log_duration, days_since_Jan1_2010, median_t, 
+                                                   paste(member, weekend, hour_of_day, temp))) %>%
+  mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
+
+significant_routes_median <- group_controlled_median_pvals %>% 
+  filter(p_adjust < 0.05)
+
+hist(group_controlled_median_pvals$p_adjust, 
+     xlab="p_value", main="P-value Histogram", breaks=20)
+plot_route_change(df, group_controlled_median_pvals, n=2)
+```
+
+## Significant routes with all 3 statistics
+
+We check to see how many routes are marked as having a statistically significant change using all 3 statistics.
+
+```{r}
+# check the common routes detected by correlation, mean, and median methods
+corr_routes <- subset(group_controlled_pvals, p_adjust < 0.05)
+mean_routes <- subset(group_controlled_mean_pvals, p_adjust < 0.05)
+median_routes <- subset(group_controlled_median_pvals, p_adjust < 0.05)
+
+common_routes <- intersect(mean_routes$route, median_routes$route)
+common_routes <- intersect(common_routes, corr_routes$route)
+length(common_routes)
+```
+
+=======
+---
+title: "STAT 27850 Project 1 Code"
+author: "Tony Zong, Louisa Lyu, Stanley Zhu"
+date: '2023-01-28'
+geometry: margin=2cm
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, message=FALSE, warning=FALSE, include=FALSE}
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 80), tidy = TRUE)
+knitr::opts_chunk$set(echo = TRUE, fig.height = 4, fig.align = 'center')
+library(tidyverse)
+rm(list=ls())
+set.seed(123)
+```
+
+# Load Data and Data Cleaing
+
+Might need some further cleaning
+
+```{r}
+# Remove outliers with IQR range test
+outliers <- function(x) {
+    q25 <- quantile(x, probs=.25)
+    q75 <- quantile(x, probs=.75)
+    interval <- q75 - q25
+    x > q75 + (interval * 1.5) | x < q25 - (interval * 1.5)
+}
+
+# Just remove 5% data on the top end.
+outliers2 <- function(x) {
+  x > quantile(x, probs=0.95)
+}
+
+# Temperature Data
+temp_data <- 
+  read.table("data/temperature-data.txt", 
+           skip = 1, 
+           col.names = c('time1', 'time2', 'daily_max', 'daily_min')) %>% 
+  mutate(year = as.numeric(substring(time2, 1, 4)), 
+         month = as.numeric(substring(time2, 6, 7)), 
+         day = as.numeric(substring(time2, 9, 10)), 
          daily_avg = (daily_max + daily_min) / 2)
 
 # Bike-share Data
@@ -62,7 +361,7 @@ df <- data.frame(duration = log(duration), station_start, station_end,
   mutate(temp_2 = cut(daily_avg, c(20, 30, 40, 50, 60, 70, 80, 90, 100))) %>%
   # Assign Id to Route
   group_by(station_start, station_end) %>% 
-  mutate(route = cur_group_id()) %>% 
+  mutate(route = paste0(station_start, "-", station_end)) %>% 
   # Filter out routes with less than 500 records
   filter(length(duration) >= 500, !outliers(duration)) %>% 
   ungroup()
@@ -296,3 +595,4 @@ common_routes <- intersect(common_routes, corr_routes$route)
 length(common_routes)
 ```
 
+>>>>>>> d44f7cd4e03ffe2e06d4e193aee5ae868f08575b
