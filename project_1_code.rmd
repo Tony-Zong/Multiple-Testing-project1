@@ -239,6 +239,67 @@ hist(group_controlled_pvals$p_adjust,
 # Top Routes
 plot_route_change(df, group_controlled_pvals, n = 2)
 ```
+# Sanity check of task specific permutation test
+To check if our permutation test is working properly, we generate null, non-null, half null and half non-null datasets to check if the permutation test will give us the expected answers.
+```{r}
+# generate null dataset
+df_null <- df %>%
+  group_by(route) %>%
+  mutate(random = rnorm(n(), mean = mean(log_duration), sd = sd(log_duration))) %>%
+  ungroup()
+
+# run the permutation task specific test on the null dataset
+group_controlled_pvals_null <- df_null %>%
+  group_by(route) %>%
+  summarize(p_val = permutation.task_specific_test(random, days_since_Jan1_2010, abscor_t, 
+                                                   paste(member, weekend, hour_of_day, temp))) %>%
+  # Adjust p_vals for multiple testing
+  mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
+
+# Identify routes with p-val < 0.05
+significant_routes_null <- group_controlled_pvals_null %>% filter(p_adjust < 0.05)
+```
+There is no significant route for the null dataset.
+
+```{r}
+# nonnull dataset
+df_nonnull <-df %>%
+  group_by(route) %>%
+  mutate(random = n():1) %>%
+  ungroup()
+
+# run the permutation task specific test on the nonnull dataset
+group_controlled_pvals_nonnull <- df_nonnull %>%
+  group_by(route) %>%
+  summarize(p_val = permutation.task_specific_test(random, days_since_Jan1_2010, abscor_t, 
+                                                   paste(member, weekend, hour_of_day, temp))) %>%
+  # Adjust p_vals for multiple testing
+  mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
+
+# Identify routes with p-val < 0.05
+significant_routes_nonnull <- group_controlled_pvals_nonnull %>% filter(p_adjust < 0.05)
+  
+```
+All the 603 routes are significant for the nonnull dataset.
+
+```{r}
+# half-null and half-nonnull dataset
+df_halfnull <-df %>%
+  group_by(route) %>%
+  mutate(random = c(rnorm(floor(n()/2), mean = mean(log_duration), sd = sd(log_duration)), ceiling(n()/2):1)) %>%
+  ungroup()
+
+# run the permutation task specific test on the nonnull dataset
+group_controlled_pvals_halfnull <- df_halfnull %>%
+  group_by(route) %>%
+  summarize(p_val = permutation.task_specific_test(random, days_since_Jan1_2010, abscor_t, 
+                                                   paste(member, weekend, hour_of_day, temp))) %>%
+  # Adjust p_vals for multiple testing
+  mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
+
+# Identify routes with p-val < 0.05
+significant_routes_halfnull <- group_controlled_pvals_halfnull %>% filter(p_adjust < 0.05)
+```
 
 # Finer Bucketing of Data
 
