@@ -286,11 +286,18 @@ All the 603 routes are significant for the nonnull dataset.
 # half-null and half-nonnull dataset
 df_halfnull <-df %>%
   group_by(route) %>%
-  mutate(random = c(rnorm(floor(n()/2), mean = mean(log_duration), sd = sd(log_duration)), ceiling(n()/2):1)) %>%
-  ungroup()
+  filter(route %in% group_controlled_pvals$route[1:round(nrow(group_controlled_pvals)/2)]) %>%
+  mutate(random = n():1)
+
+df_halfnonnull <-df %>%
+  group_by(route) %>%
+  filter(route %in% group_controlled_pvals$route[(round(nrow(group_controlled_pvals)/2) + 1):nrow(group_controlled_pvals)]) %>%
+  mutate(random = rnorm(n(), mean = mean(log_duration), sd = sd(log_duration)))
+
+df_halfhalf <- rbind(df_halfnull, df_halfnonnull)
 
 # run the permutation task specific test on the nonnull dataset
-group_controlled_pvals_halfnull <- df_halfnull %>%
+group_controlled_pvals_halfhalf <- df_halfhalf %>%
   group_by(route) %>%
   summarize(p_val = permutation.task_specific_test(random, days_since_Jan1_2010, abscor_t, 
                                                    paste(member, weekend, hour_of_day, temp))) %>%
@@ -298,7 +305,7 @@ group_controlled_pvals_halfnull <- df_halfnull %>%
   mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
 
 # Identify routes with p-val < 0.05
-significant_routes_halfnull <- group_controlled_pvals_halfnull %>% filter(p_adjust < 0.05)
+significant_routes_halfhalf <- group_controlled_pvals_halfhalf %>% filter(p_adjust < 0.05)
 ```
 
 # Finer Bucketing of Data
