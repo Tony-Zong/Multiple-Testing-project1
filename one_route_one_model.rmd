@@ -109,7 +109,7 @@ p_vals = c()
 ```
 
 
-```{r}
+```{r cache=TRUE, message=FALSE, warning=FALSE}
 for (a_route in busy_routes) {
   # pick a route and give it a try
   #a_route = '31101-31200'
@@ -191,14 +191,14 @@ for (a_route in busy_routes) {
 
 ```{r}
 p_vals = p.adjust(p_vals, method = 'fdr')
-final = data.frame(busy_routes, p_vals)
-final = final %>% filter(p_vals < 0.05)
-final
+final2 = data.frame(busy_routes, p_vals)
+final2 = final2 %>% filter(p_vals < 0.05)
+final2
 ```
 
 
-```{r}
-write.csv(final,file='one_model_per_route.csv')
+```{r eval=FALSE, include=FALSE}
+#write.csv(final2,file='one_model_per_route.csv')
 ```
 
 
