@@ -15,9 +15,10 @@ knitr::opts_chunk$set(echo = TRUE, fig.height = 4, fig.align = 'center')
 library(tidyverse)
 rm(list=ls())
 set.seed(123)
+theme_set(theme_bw())
 ```
 
-# Load Data and Data Cleaing
+# Load Data and Data Cleaning
 
 ```{r}
 # Remove outliers with IQR range test
@@ -313,7 +314,7 @@ For the data with half of the routes following random normal distribution and ha
 
 We then filter the data to only keep routes with more than 1000 records and apply a finer grouping. Keeping only the routes with more data (>1000), we are able to apply a finer grouping method because there is enough data to ensure the power of the test is still strong even when grouping becomes more specific. Weekdays changed from 2 categories (weekday/weekend) to 7 categories, temperature changed from 20F intervals to 10F intervals, and hour changed from 2 12-hour groups to 4 6-hour groups 
 
-```{r}
+```{r, cache = TRUE}
 # FINER control for Membership status, day of the week (7), hour of the day (6), and temperature (8)
 # parenthesis represents how many categories are for each variable
 
@@ -330,12 +331,16 @@ group_controlled_pvals2 <- df %>%
                                                    paste(member, day_of_week, hour_of_day_2, temp_2))) %>%
   mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
 
-significant_routes <- group_controlled_pvals2 %>% filter(p_adjust < 0.05)
+significant_routes2 <- group_controlled_pvals2 %>% filter(p_adjust < 0.05)
 
 # Plot P-value histogram and top routes
 hist(group_controlled_pvals2$p_adjust, 
      xlab="p_value", main="P-value Histogram", breaks=20)
+length(significant_routes2)
 
+```
+
+```{r}
 plot_route_change(df, group_controlled_pvals)
 ```
 
@@ -409,31 +414,6 @@ length(common_routes)
 head(common_routes, 10)
 ```
 
-## Using correlation only on data from september to december (both 2010 and 2011)
-
-We then re-run the correlation test with only the data from September to December in 2010 and 2011 to compare with the result from our other regression model.
-
-```{r, cache = TRUE}
-df_sepdec <- df %>%
-  filter(member == TRUE) %>%
-  filter(between(days_since_Jan1_2010, 243, 364) | between(days_since_Jan1_2010, 608, 729))
-
-group_controlled_sepdec_pvals <- df_sepdec %>%
-  group_by(route) %>%
-  summarize(p_val = permutation.task_specific_test(log_duration, days_since_Jan1_2010, abscor_t, 
-                                                   paste(member, weekend, hour_of_day, temp))) %>%
-  # Adjust p_vals for multiple testing
-  mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
-
-# Identify routes with p-val < 0.05
-significant_routes_sepdec <- group_controlled_sepdec_pvals %>% filter(p_adjust < 0.05)
-
-```
-
-```{r}
-plot_route_change(df_sepdec, group_controlled_sepdec_pvals)
-```
-
 ## Discussions and Limitations of the Permutation Test
 
 Our permutation test is effective in identifying long-term changes in trend, and its validity is further improved by using three test statistics (correlation, mean, and median) to find significant routes in common. Nevertheless, there are a few limitations due to the nature of the test statistics and the data itself that should be noted.
@@ -445,3 +425,62 @@ Secondly, though the permutation test considered membership, day of week, hour o
 Thirdly, our test statistics is not perfect in identifying some abrupt or sudden changes in the data: it captures long-term changes better. We did not find a perfect test statistics that could allow us to detect such sudden changes. Our best conjecture is to chop the data into smaller sections and compare the mean/median between each two consecutive sections. However, due to the limited data for each route, we might not be able to do so while controlling for all the other relevant variables that we should control for (membership, day of week, hour of day, and temperature). 
 
 Fourthly, we noticed that each “route” is specified by a starting station number and an ending station number. However, when looking up on google maps, we noticed that sometimes there exist multiple possible path between two stations. Different path takes slightly different amount of time, but they are all considered to be the same “route” due to the same starting and ending station number. This might bias our result—the correlation might arise due to fluctuations in frequencies people take the shorter vs the longer paths. We tried to improve this problem by removing outliers for each route to exclude some extreme cases (i.e., start from a station, ride around D.C. for 2hrs, and return to a station nearby the starting station), but the result might still be biased by paths that take not so different amount of times. 
+
+## Using correlation only on data from september to december (both 2010 and 2011)
+
+We then re-run the correlation test with only the data from September to December in 2010 and 2011 to compare with the result from our other regression model.
+
+```{r, cache = TRUE}
+# filter out only data from september to december in 2010 and 2011
+df_sepdec <- df %>%
+  filter(member == TRUE) %>%
+  filter(between(days_since_Jan1_2010, 243, 364) | between(days_since_Jan1_2010, 608, 729))
+
+# test statistics to compare the median between 2010 sep-dec and 2011 sep-dec
+median_t_sepdec <- function(duration, days_from_start) {
+  first_half <- duration[1:(which(days_from_start > 608)[1] - 1)]
+  second_half <- duration[which(days_from_start > 608)[1]:length(duration)]
+  median(first_half) - median(second_half)
+}
+
+group_controlled_sepdec_pvals <- df_sepdec %>%
+  group_by(route) %>%
+  summarize(p_val = permutation.task_specific_test(log_duration, days_since_Jan1_2010, median_t_sepdec, 
+                                                   paste(member, weekend, hour_of_day, temp))) %>%
+  # Adjust p_vals for multiple testing
+  mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
+
+# Identify routes with p-val < 0.05
+significant_routes_sepdec_median <- group_controlled_sepdec_pvals %>% filter(p_adjust < 0.05)
+
+# use absolute correlation on the 2010 sep-dec and 2011 sep-dec
+group_controlled_sepdec_pvals <- df_sepdec %>%
+  group_by(route) %>%
+  summarize(p_val = permutation.task_specific_test(log_duration, days_since_Jan1_2010, abscor_t, 
+                                                   paste(member, weekend, hour_of_day, temp))) %>%
+  # Adjust p_vals for multiple testing
+  mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
+
+# Identify routes with p-val < 0.05
+significant_routes_sepdec_abscor<- group_controlled_sepdec_pvals %>% filter(p_adjust < 0.05)
+```
+
+```{r}
+plot_route_change(df_sepdec, group_controlled_sepdec_pvals)
+```
+
+We believe the median/mean test statistics is the most relevant or comparable test statistics with the regression test as both treated 2010 and 2011 data separately and compared the two with each other. The median test statistics would be better than mean as it will not be affected by outliers. Therefore, we find the common routes identified by the permutation (median test statistics) with the regression test to see if the two methods give common results.
+
+```{r}
+# Find common routes identified by permutation (median) and regression test
+regression <- read.csv("single.csv")
+intersect(significant_routes_sepdec_median$route, regression$noncoverage_rates_2010.route)
+```
+
+We then find common routes identified by permutation (median), permutation (absolute correlation), and regression test to identify routes that are shown to be significantly changed by all three test statistics. Since absolute correlation and median are testing different types of changes, we think these routes are most likely to have some sort of changes as it survived all three tests (that are all testing changes from slightly different approachs).
+
+```{r}
+# Find common routes identified by permutation (median) and regression test
+intersect(intersect(significant_routes_sepdec_median$route, significant_routes_sepdec_abscor$route), regression$noncoverage_rates_2010.route)
+```
+
