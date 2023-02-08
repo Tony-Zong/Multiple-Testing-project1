@@ -101,7 +101,7 @@ df10 <- df %>% filter(year == 2010 & route %in% busy_routes_2010)
 
 Regression formula:
 
-log_duration ~ month + day_of_week + factor(hour) + weekend + daily_temp + route
+log_duration ~ member + month + day_of_week + factor(hour) + weekend + daily_temp + route
 
 
 ### Step 1: create a hold-out set for 2011 (for example, 20%)
