@@ -1,4 +1,3 @@
-plots
 ---
 title: "Regression Approach"
 author: "Group members"
@@ -11,6 +10,7 @@ library(tidyverse)
 library(ggplot2)
 library(stargazer)
 set.seed(12)
+theme_set(theme_bw())
 ```
 
 Initial data cleaning:
@@ -108,7 +108,7 @@ log_duration ~ member + month + day_of_week + factor(hour) + weekend + daily_tem
 ### Step 1: create a hold-out set for 2011 (for example, 20%)
 
 
-```{r}
+```{r cache=TRUE}
 # create hold-out set for 2011
 picked = sample(seq_len(nrow(df11)), size = nrow(df11)*0.8)
 df11_train =df11[picked,]
@@ -118,7 +118,7 @@ df11_holdout =df11[-picked,]
 
 ### Step 2: train a regression model using 2011’s training data (without aggregation, so that the model covers a wider range for the feature values → less likely for extrapolation to happen)
 
-```{r}
+```{r cache=TRUE}
 lm_2011 = lm(log_duration ~ member + daily_temp + month + day_of_week + hour + route, data = df11_train)
 ```
 
@@ -273,12 +273,12 @@ final
 
 
 ```{r}
-write.csv(final,file='single.csv')
+#write.csv(final,file='single.csv')
 ```
 
 ## Bar plots for comparison of number of rides
 (i) 2010 and 2011 member vs non-member
-```{r}
+```{r cache=TRUE}
 # Group 2010 and 2011 data by membership
 df_10_member <- df10 %>%
   group_by(member) %>%
@@ -290,7 +290,7 @@ df_11_member <- df11 %>%
 
 # Combine the grouped data into a single data frame
 df_combined <- rbind(df_10_member, df_11_member)
-df_combined$data_frame <- c(rep("2010 membership", 2), rep("2011 membership", 2))
+df_combined$data_frame <- c(rep("membership, 2010", 2), rep("membership, 2011", 2))
 
 # Create the bar plot
 ggplot(df_combined, aes(x = member, y = frequency, fill = member)) +
@@ -302,29 +302,37 @@ ggplot(df_combined, aes(x = member, y = frequency, fill = member)) +
 ```
 
 (ii) 2010 and 2011 weekdays
-```{r}
+```{r cache=TRUE}
 # Group 2010 and 2011 data by day of week
 df_10_weekdays <- df10 %>%
   group_by(day_of_week) %>%
-  summarize(frequency = n() / nrow(df10))
+  summarize(frequency = n() / nrow(df10)) %>% 
+  mutate(day_of_week = recode_factor(day_of_week,"Monday"="Mon","Tuesday"="Tues",
+                                     "Wednesday"="Wed","Thursday"="Thurs",
+                                     "Friday"="Fri","Saturday"="Sat","Sunday"="Sun"))
 
 df_11_weekdays <- df11 %>%
   group_by(day_of_week) %>%
-  summarize(frequency = n() / nrow(df11))
+  summarize(frequency = n() / nrow(df11)) %>% 
+  mutate(day_of_week = recode_factor(day_of_week,"Monday"="Mon","Tuesday"="Tues",
+                                     "Wednesday"="Wed","Thursday"="Thurs",
+                                     "Friday"="Fri","Saturday"="Sat","Sunday"="Sun"))
 
 # Combine the grouped data into a single data frame
 df_combined <- rbind(df_10_weekdays, df_11_weekdays)
-df_combined$data_frame <- c(rep("2010 day of week", 7), rep("2011 day of week", 7))
+df_combined$data_frame <- c(rep("day of week, 2010", 7), rep("day of week, 2011", 7))
 
 # Create the bar plot
 ggplot(df_combined, aes(x = day_of_week, y = frequency, fill = day_of_week)) +
   geom_bar(stat = "identity", position = "dodge") +
   facet_wrap(~ data_frame, scales = "free", ncol = 2) +
-  labs(x = "Day of week", y = "Frequency", fill = "Day of week")
+  labs(x = "Day of week", y = "Frequency", fill = "Day of week") +
+  scale_fill_brewer(type="seq",name="Day of Week",
+                      breaks= levels(df_combined$day_of_week))
 ```
 
 (iii) 2010 and 2011 hour of day
-```{r}
+```{r cache=TRUE}
 # Group 2010 and 2011 data by hour of day
 df_10_hour <- df10 %>%
   group_by(hour_of_day) %>%
@@ -337,11 +345,18 @@ df_11_hour <- df11 %>%
 
 # Combine the grouped data into a single data frame
 df_combined <- rbind(df_10_hour, df_11_hour)
-df_combined$data_frame <- c(rep("2010 hour of day", 4), rep("2011 hour of day", 4))
+df_combined$data_frame <- c(rep("hour of day, 2010", 4), rep("hour of day, 2011", 4))
 
 # Create the bar plot
 ggplot(df_combined, aes(x = hour_of_day, y = frequency, fill = hour_of_day)) +
   geom_bar(stat = "identity", position = "dodge") +
   facet_wrap(~ data_frame, scales = "free", ncol = 2) +
-  labs(x = "Hour of day", y = "Frequency", fill = "Hour of day")
+  labs(x = "Hour of day", y = "Frequency", fill = "Hour of day") +
+  scale_fill_brewer(type="seq",name="Hour of Day",
+                      breaks= levels(df_combined$hour_of_day))
 ```
+
+```{r}
+
+```
+

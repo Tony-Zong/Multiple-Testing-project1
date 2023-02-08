@@ -1,0 +1,623 @@
+---
+title: "Regression -- A Prediction Based Approach"
+output: pdf_document
+---
+
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(stargazer)
+set.seed(12)
+theme_set(theme_bw())
+```
+
+# Introduction to the Regression Approach
+
+The gist of this approach is using one year's data to predict the other year's ride durations (the outcome variable), and then comparing the predictions to the actual durations. The intuition is that if there is no significant change in the routes, we should expect to see that the predictions and the true ride durations to be close to each other. And if we observe a statistically significant amount of differences between them for a certain route, this could be a potential evidence that this route had changed between 2010 and 2011.
+
+Before delving into the details of each step of this approach, we want to acknowledge some limitations of this approach in answering the original question of "detecting if there is any change at any point for each route". This approach, as an exploratory analysis, simplifies the question asked. Instead, here we are investigating if there is a change between 2010 and 2011 for each route. Furthermore, due to the limitation of the data (and the fact that this bike share program in D.C. only started in late 2010), we are only comparing Sept.-Dec. 2010 vs. Sept.-Dec. 2011, as there is no data in 2010 from Jan. to Aug. 
+
+Again, since the program started in late 2010, there was less data in 2010 than in 2011. Thus, in order to consider more routes in our regression model (a route needs to have enough data to be included in the model; otherwise there can be too much noise), we decided to use 2011 Sept.-Dec.'s data to train the model, and then apply the model on 2010's data for testing.
+
+## Outline of the steps taken
+
+**Step 0:** Data cleaning. Details will be discussed in the later section.
+
+**Step 1:** Filter for 2011 Sept.-Dec.'s data. Create a hold-out set for 2011 (for example, 20%). This hold-out set (validation set) will be used to compare with the prediction performance of the model on the test set later.
+
+**Step 2:** Train a regression model using 2011’s training data. Here, we tried two approaches when training the model. 
+
+One approach is to train one single model for all the routes, with `route` as a covariate in the model. This will assume that covariates, such as day of week, daily temperature, membership status etc., have the same effects on ride duration across all the routes. While we believe this might be generally true, there definitely can be instances where, for example, some covariate like a low daily temperature (cold weather) has a greater effect on ride duration because of the terrain or geography of some route. i.e. there can be interactions between `route` and other covariates. But we are not including them in the model due to the limitation of sample size.
+
+Another approach is to train a different model for each route we consider. While this may better account for the interaction between `route` and other covariates, since we generally only have hundreds of data points for each route, the relatively low sample size may make the models less robust. 
+
+In the later sections, we implemented both approaches.
+
+**Step 3:** Aggregate the hold-out data set by categorical covariates. Since the data is assumed to be noisy, we decided to aggregate each route’s data on an hourly basis (and control for membership status) by taking median for the ride duration. We record how many original samples each aggregated sample represents, and this will be used as weights when making predictions.
+
+*Note:* We didn't aggregate the data when building the model to allow for a wider range for the feature values, so that it's less likely for extrapolation to happend when making predictions.
+
+**Step 4:** Apply the model on the 2011 hold-out set. Construct 95% prediction intervals for the hold-out data set, adjusted for the weights mentioned in step 3. Record the non-coverage rate of the prediction intervals for each route.
+
+**Step 5:** Apply the regression model on the aggregated 2010 data set. Construct prediction intervals and find a new non-coverage rate for each route. Perform a binomial test on the the non-coverage rates we get when applying the model on the 2011 validation set and the 2010 test set.
+
+
+## Initial data cleaning
+
+We get additional data on daily average temperature
+
+```{r, cache=TRUE}
+# get the data
+# Temperature Data
+temp_data <- 
+  read.table("data/temperature-data.txt", 
+           skip = 1, 
+           col.names = c('time1', 'time2', 'daily_max', 'daily_min')) %>% 
+  mutate(year = as.numeric(substring(time2, 1, 4))) %>% 
+  mutate(month = as.numeric(substring(time2, 6, 7))) %>% 
+  mutate(day = as.numeric(substring(time2, 9, 10))) %>%
+  mutate(daily_temp = (daily_max + daily_min) / 2)
+# Remove outliers with IQR range test
+outliers <- function(x) {
+    q25 <- quantile(x, probs=.25)
+    q75 <- quantile(x, probs=.75)
+    interval <- q75 - q25
+    x > q75 + (interval * 1.5) | x < q25 - (interval * 1.5)
+}
+# Bike-share Data
+load("data/bikedata.RData")
+colnames(starttime) = c("year", "month", "day", "hour", "minute", "second")
+df <- data.frame(log_duration = log(duration), station_start, station_end, 
+                starttime, day_of_week, days_since_Jan1_2010, member) %>% 
+  # Join with Temperature Data
+  left_join(temp_data, by = c('year','month','day')) %>% 
+  # Add Weekend/weekday 
+  mutate(weekend = day_of_week %in% c("Saturday", "Sunday")) %>% 
+  # Add Hour of the Day
+  mutate(hour_of_day = cut(hour, c(-1, 6, 12, 18, 24))) %>%
+  # Add temperature buckets
+  mutate(temp = cut(daily_temp, c(20, 40, 60, 80, 100))) %>%
+  # Assign Id to Route
+  group_by(station_start, station_end) %>% 
+  mutate(route = paste0(station_start, "-", station_end)) %>% 
+  mutate(route = factor(route)) %>% 
+  # Filter out routes with less than 500 records
+  filter(length(log_duration) >= 500 & !outliers(log_duration)) %>% 
+  ungroup()
+# drop 2011 Jan-Aug data
+df <- df %>% filter(month %in% 9:12) %>% 
+  mutate(month = factor(month)) %>% 
+  mutate(day_of_week = factor(day_of_week)) %>% 
+  mutate(day_of_week = fct_relevel(day_of_week, 
+                                   c("Monday","Tuesday","Wednesday",
+                                     "Thursday","Friday","Saturday","Sunday"))) %>% 
+  mutate(hour = factor(hour))
+```
+
+
+# One single model for all the routes, with `route` as a covariate
+
+We want to make sure for each route we train the model on, there is enough data. Since we use 2011 data to build the regression model, we filter for "busy" routes based on 2011's data. Here, we decide to only consider the routes with more than 100 rides during September - December in 2011.
+
+We also filter for routes that have more than 100 routes in 2010.
+
+
+```{r cache=TRUE}
+busy_routes_df <- df %>% 
+  filter(year==2011) %>% 
+  group_by(route) %>% 
+  summarise(ride_counts = n()) %>% 
+  filter(ride_counts >= 100)
+
+busy_routes <- busy_routes_df$route
+
+
+busy_routes_df_2010 <- df %>% 
+  filter(year==2010) %>% 
+  group_by(route) %>% 
+  summarise(ride_counts = n()) %>% 
+  filter(ride_counts >= 100)
+
+busy_routes_2010 <- busy_routes_df_2010$route
+busy_routes_2010 <- intersect(busy_routes, busy_routes_2010)
+```
+
+
+
+
+```{r cache=TRUE}
+# split data by year
+df11 <- df %>% filter(year == 2011 & route %in% busy_routes) %>% 
+  select(c(log_duration, member, year, month, day, hour, 
+           day_of_week, daily_temp, weekend, route))
+
+df10 <- df %>% filter(year == 2010 & route %in% busy_routes_2010)
+```
+
+
+Regression formula:
+
+log_duration ~ member + month + day_of_week + factor(hour) + weekend + daily_temp + route
+
+
+### Step 1: create a hold-out set for 2011 (for example, 20%)
+
+
+```{r cache=TRUE}
+# create hold-out set for 2011
+picked = sample(seq_len(nrow(df11)), size = nrow(df11)*0.8)
+df11_train =df11[picked,]
+df11_holdout =df11[-picked,]
+```
+
+
+### Step 2: train a regression model using 2011’s training data (without aggregation, so that the model covers a wider range for the feature values → less likely for extrapolation to happen)
+
+```{r cache=TRUE}
+lm_2011 = lm(log_duration ~ member + daily_temp + month + day_of_week + hour + route, 
+             data = df11_train)
+```
+
+```{r echo = T, results = 'hide'}
+summary(lm_2011)
+```
+
+
+## Step 3: Aggregation on 2011 hold-out set
+
+We perform aggregation on the 2011 hold-out data set by grouping rides for each route from the same hour together. We do the aggregation by taking median. We also keep track of the number of samples represented by each row in this aggregated data frame. This will be used as weights when we construct the prediction intervals in the net step.
+
+
+```{r cache=TRUE}
+df11_holdout_agg <- df11_holdout %>% 
+  select(-c(year, weekend)) %>% 
+  group_by(route, month, day, hour, member) %>% 
+  mutate(log_duration = median(log_duration)) %>% 
+  mutate(counts = n()) %>% 
+  ungroup() %>% 
+  distinct() %>% 
+  arrange(route, month, day, hour, member)
+```
+
+
+## Step 4: construct prediction intervals for the hold-out data set
+
+Here, we just want to make sure that there is no route that only appears in the hold-out set, but not in the training set. After checking this, we know this didn't happen. 
+
+```{r cache=TRUE}
+train_routes <- unique(df11_train$route)
+
+df11_holdout_agg <- df11_holdout_agg %>% 
+  filter(route %in% train_routes)
+```
+
+Then, we make predictions for the 2011 hold-out set, and construct 95% prediction intervals adjusted by weights.
+
+```{r cache=TRUE}
+prediction_2011_holdout <- data.frame(predict(lm_2011, newdata = df11_holdout_agg, 
+                                   interval = "predict", level = 0.95, 
+                                   weights = df11_holdout_agg$counts)) %>% 
+  mutate(true_duration = df11_holdout_agg$log_duration)
+```
+
+The original 95% prediction intervals have a non-coverage rate of 0.04799874:
+
+```{r}
+nrow(prediction_2011_holdout %>% 
+       filter(true_duration>upr | true_duration<lwr)) / nrow(prediction_2011_holdout)
+```
+
+
+```{r}
+noncoverage_rates_2011 <- prediction_2011_holdout %>% 
+  mutate(route = df11_holdout_agg$route) %>% 
+  group_by(route) %>% 
+  mutate(total_ride_count = n()) %>% 
+  mutate(noncoverage_count = sum(true_duration>upr | true_duration<lwr)) %>% 
+  mutate(noncoverage_proportion = noncoverage_count / total_ride_count) %>% 
+  ungroup() %>% 
+  select(c(route, total_ride_count, noncoverage_count, noncoverage_proportion)) %>% 
+  distinct() %>% 
+  arrange(desc(noncoverage_proportion)) %>% 
+  filter(route %in% busy_routes_2010)
+
+noncoverage_rates_2011
+```
+
+
+Now, if the 2010's data doesn't have significant change from 2011's data, we should also expect to see a non-coverage rate of roughly ???%. 
+
+
+## Step 5: apply the regression model on the aggregated 2010 data set (Sept. to Dec.); construct prediction intervals and adjust their width; compare this new coverage rate to the one we get from 2011 hold-out set.
+
+Again, we first aggregate 2011's data, just like we did to 2011's hold-out set.
+
+```{r}
+df10_agg <- df10 %>% 
+  select(-c(year, weekend)) %>% 
+  group_by(route, month, day, hour, member) %>% 
+  mutate(log_duration = median(log_duration)) %>% 
+  mutate(counts = n()) %>% 
+  ungroup() %>% 
+  distinct() %>% 
+  filter(route %in% train_routes) %>% 
+  arrange(route, month, day, hour, member)
+```
+
+Then, we create prediction intervals:
+
+```{r cache=TRUE}
+prediction_2010 <- data.frame(predict(lm_2011, newdata = df10_agg, 
+                                   interval = "predict", level = 0.95, 
+                                   weights = df10_agg$counts)) %>% 
+  mutate(true_duration = df10_agg$log_duration) %>% 
+  mutate(route = df10_agg$route)
+```
+
+
+Finally, we get an overall non-coverage rate of 0.1022566, which is greater than 0.05. 
+
+```{r}
+nrow(prediction_2010 %>% filter(true_duration>upr | true_duration<lwr)) / nrow(prediction_2010)
+```
+
+
+```{r}
+noncoverage_rates_2010 <- prediction_2010 %>% 
+  group_by(route) %>% 
+  mutate(total_ride_count = n()) %>% 
+  mutate(noncoverage_count = sum(true_duration>upr | true_duration<lwr)) %>% 
+  mutate(noncoverage_proportion = noncoverage_count / total_ride_count) %>% 
+  ungroup() %>% 
+  select(c(route, total_ride_count, noncoverage_count, noncoverage_proportion)) %>% 
+  distinct() %>% 
+  arrange(desc(noncoverage_proportion))
+
+noncoverage_rates_2010
+```
+
+
+```{r message=FALSE, warning=FALSE, cache=TRUE}
+p_vals = c()
+
+for (a_route in busy_routes_2010) {
+
+  route_info_2011 = noncoverage_rates_2011 %>% filter(`route` == a_route)
+  route_info_2010 = noncoverage_rates_2010 %>% filter(`route` == a_route)
+  
+  noncov_rate_2011 = route_info_2011$noncoverage_proportion
+  
+  num_noncoverage_2010 = route_info_2010$noncoverage_count
+  total_2010 = route_info_2010$total_ride_count 
+  
+  res = binom.test(num_noncoverage_2010,
+             total_2010,
+             noncov_rate_2011,
+             alternative = "greater")
+  
+  p_val = res$p.value
+  
+  p_vals = append(p_vals, p_val)
+}
+```
+
+
+```{r}
+p_vals = p.adjust(p_vals, method = 'fdr')
+final = data.frame(noncoverage_rates_2010$route, p_vals)
+final = final %>% filter(p_vals < 0.05)
+final
+```
+
+
+## Bar plots for comparison of number of rides
+(i) 2010 and 2011 member vs non-member
+```{r cache=TRUE}
+# Group 2010 and 2011 data by membership
+df_10_member <- df10 %>%
+  group_by(member) %>%
+  summarize(frequency = n() / nrow(df10))
+
+df_11_member <- df11 %>%
+  group_by(member) %>%
+  summarize(frequency = n() / nrow(df11))
+
+# Combine the grouped data into a single data frame
+df_combined <- rbind(df_10_member, df_11_member)
+df_combined$data_frame <- c(rep("membership, 2010", 2), rep("membership, 2011", 2))
+
+# Create the bar plot
+ggplot(df_combined, aes(x = member, y = frequency, fill = member)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ data_frame, scales = "free", ncol = 2) +
+  labs(x = "Membership status", y = "Frequency", fill = "Membership status") +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0))
+
+```
+
+(ii) 2010 and 2011 weekdays
+```{r cache=TRUE}
+# Group 2010 and 2011 data by day of week
+df_10_weekdays <- df10 %>%
+  group_by(day_of_week) %>%
+  summarize(frequency = n() / nrow(df10)) %>% 
+  mutate(day_of_week = recode_factor(day_of_week,"Monday"="Mon","Tuesday"="Tues",
+                                     "Wednesday"="Wed","Thursday"="Thurs",
+                                     "Friday"="Fri","Saturday"="Sat","Sunday"="Sun"))
+
+df_11_weekdays <- df11 %>%
+  group_by(day_of_week) %>%
+  summarize(frequency = n() / nrow(df11)) %>% 
+  mutate(day_of_week = recode_factor(day_of_week,"Monday"="Mon","Tuesday"="Tues",
+                                     "Wednesday"="Wed","Thursday"="Thurs",
+                                     "Friday"="Fri","Saturday"="Sat","Sunday"="Sun"))
+
+# Combine the grouped data into a single data frame
+df_combined <- rbind(df_10_weekdays, df_11_weekdays)
+df_combined$data_frame <- c(rep("day of week, 2010", 7), rep("day of week, 2011", 7))
+
+# Create the bar plot
+ggplot(df_combined, aes(x = day_of_week, y = frequency, fill = day_of_week)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ data_frame, scales = "free", ncol = 2) +
+  labs(x = "Day of week", y = "Frequency", fill = "Day of week") +
+  scale_fill_brewer(type="seq",name="Day of Week",
+                      breaks= levels(df_combined$day_of_week))
+```
+
+(iii) 2010 and 2011 hour of day
+```{r cache=TRUE}
+# Group 2010 and 2011 data by hour of day
+df_10_hour <- df10 %>%
+  group_by(hour_of_day) %>%
+  summarize(frequency = n() / nrow(df10))
+
+df11 <- df %>% filter(year == 2011 & route %in% busy_routes) 
+df_11_hour <- df11 %>%
+  group_by(hour_of_day) %>%
+  summarize(frequency = n() / nrow(df11))
+
+# Combine the grouped data into a single data frame
+df_combined <- rbind(df_10_hour, df_11_hour)
+df_combined$data_frame <- c(rep("hour of day, 2010", 4), rep("hour of day, 2011", 4))
+
+# Create the bar plot
+ggplot(df_combined, aes(x = hour_of_day, y = frequency, fill = hour_of_day)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ data_frame, scales = "free", ncol = 2) +
+  labs(x = "Hour of day", y = "Frequency", fill = "Hour of day") +
+  scale_fill_brewer(type="seq",name="Hour of Day",
+                      breaks= levels(df_combined$hour_of_day))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# One model for each route
+
+```{r include=FALSE}
+rm(list=ls())
+```
+
+
+```{r include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(stargazer)
+set.seed(12)
+```
+
+
+Initial data cleaning:
+
+```{r, cache=TRUE}
+# get the data
+# Temperature Data
+temp_data <- 
+  read.table("data/temperature-data.txt", 
+           skip = 1, 
+           col.names = c('time1', 'time2', 'daily_max', 'daily_min')) %>% 
+  mutate(year = as.numeric(substring(time2, 1, 4))) %>% 
+  mutate(month = as.numeric(substring(time2, 6, 7))) %>% 
+  mutate(day = as.numeric(substring(time2, 9, 10))) %>%
+  mutate(daily_temp = (daily_max + daily_min) / 2)
+# Remove outliers with IQR range test
+outliers <- function(x) {
+    q25 <- quantile(x, probs=.25)
+    q75 <- quantile(x, probs=.75)
+    interval <- q75 - q25
+    x > q75 + (interval * 1.5) | x < q25 - (interval * 1.5)
+}
+# Bike-share Data
+load("data/bikedata.RData")
+colnames(starttime) = c("year", "month", "day", "hour", "minute", "second")
+df <- data.frame(log_duration = log(duration), station_start, station_end, 
+                starttime, day_of_week, days_since_Jan1_2010, member) %>% 
+  # Join with Temperature Data
+  left_join(temp_data, by = c('year','month','day')) %>% 
+  # Add Weekend/weekday 
+  mutate(weekend = day_of_week %in% c("Saturday", "Sunday")) %>% 
+  # Add Hour of the Day
+  mutate(hour_of_day = cut(hour, c(-1, 6, 12, 18, 24))) %>%
+  # Add temperature buckets
+  mutate(temp = cut(daily_temp, c(20, 40, 60, 80, 100))) %>%
+  # Assign Id to Route
+  group_by(station_start, station_end) %>% 
+  mutate(route = paste0(station_start, "-", station_end)) %>% 
+  mutate(route = factor(route)) %>% 
+  # Filter out routes with less than 500 records
+  filter(length(log_duration) >= 500 & !outliers(log_duration)) %>% 
+  ungroup()
+# drop 2011 Jan-Aug data
+df <- df %>% filter(month %in% 9:12) %>% 
+  mutate(month = factor(month)) %>% 
+  mutate(day_of_week = factor(day_of_week)) %>% 
+  mutate(day_of_week = fct_relevel(day_of_week, 
+                                   c("Monday","Tuesday","Wednesday",
+                                     "Thursday","Friday","Saturday","Sunday"))) %>% 
+  mutate(hour = factor(hour))
+```
+
+
+We want to make sure for each route we train a model on, there is enough data. Since we use 2011 data to build the regression model, we filter for "busy" routes based on 2011's data. Here, we decide to only consider the routes with more than 100 rides during September - December in 2011.
+
+We also filter for routes that have more than 100 routes in 2010.
+
+
+```{r cache=TRUE}
+busy_routes_df_2011 <- df %>% 
+  filter(year==2011) %>% 
+  group_by(route) %>% 
+  summarise(ride_counts = n()) %>% 
+  filter(ride_counts >= 100)
+
+busy_routes_2011 <- busy_routes_df_2011$route
+
+
+busy_routes_df_2010 <- df %>% 
+  filter(year==2010) %>% 
+  group_by(route) %>% 
+  summarise(ride_counts = n()) %>% 
+  filter(ride_counts >= 100)
+
+busy_routes_2010 <- busy_routes_df_2010$route
+# we only want to make predictions for routes that have enough
+# rides in both years
+busy_routes <- intersect(busy_routes_2011, busy_routes_2010)
+```
+
+
+```{r cache=TRUE}
+# split data by year
+df11 <- df %>% filter(year == 2011 & route %in% busy_routes) %>% 
+  select(c(log_duration, member, year, month, day, hour, 
+           day_of_week, daily_temp, weekend, route))
+
+df10 <- df %>% filter(year == 2010 & route %in% busy_routes)
+```
+
+Regression formula:
+
+log_duration ~ member + month + day_of_week + factor(hour) + weekend + daily_temp + route
+
+
+```{r}
+p_vals = c()
+```
+
+
+```{r cache=TRUE, message=FALSE, warning=FALSE}
+for (a_route in busy_routes) {
+  # pick a route and give it a try
+  #a_route = '31101-31200'
+  
+  # filter for this route's data
+  route_df11 <- df11 %>% filter(route == a_route)
+  route_df10 <- df10 %>% filter(route == a_route)
+  
+  # create hold-out set for 2011 data
+  picked = sample(seq_len(nrow(route_df11)), size = nrow(route_df11)*0.7)
+  df11_train =route_df11[picked,]
+  df11_holdout =route_df11[-picked,]
+  
+  # train a model for this route
+  # print(a_route)
+  lm_2011 = lm(log_duration ~ member + daily_temp + month + day_of_week + hour, 
+               data = df11_train)
+  #summary(lm_2011)
+  
+  # aggregate on 2011 hold-out set
+  df11_holdout_agg <- df11_holdout %>% 
+    select(-c(year, weekend)) %>% 
+    group_by(month, day, hour, member) %>% 
+    mutate(log_duration = median(log_duration)) %>% 
+    mutate(counts = n()) %>% 
+    ungroup() %>% 
+    distinct() %>% 
+    arrange(month, day, hour, member)
+  
+  # make sure that the hold-out set doesn't have new levels
+  df11_holdout_agg <- df11_holdout_agg %>% 
+    filter(hour %in% unique(df11_train$hour)) %>% 
+    filter(day_of_week %in% unique(df11_train$day_of_week))
+  
+  # make predictions for the hold-out set
+  prediction_2011_holdout <- data.frame(predict(lm_2011, newdata = df11_holdout_agg, 
+                                     interval = "predict", level = 0.95, 
+                                     weights = df11_holdout_agg$counts)) %>% 
+    mutate(true_duration = df11_holdout_agg$log_duration)
+  
+  # find non-coverage rate on hold-out set
+  holdout_noncover = nrow(prediction_2011_holdout %>% 
+                            filter(true_duration>upr | true_duration<lwr))
+  holdout_total = nrow(prediction_2011_holdout)
+  holdout_noncover_rate = holdout_noncover/holdout_total
+  
+  # aggregate on 2010 test data
+  df10_agg <- route_df10 %>% 
+    select(-c(year, weekend)) %>% 
+    group_by(month, day, hour, member) %>% 
+    mutate(log_duration = median(log_duration)) %>% 
+    mutate(counts = n()) %>% 
+    ungroup() %>% 
+    distinct() %>% 
+    arrange(month, day, hour, member)
+  
+  # make sure that the 2010 test set doesn't have new levels
+  df10_agg <- df10_agg %>% 
+    filter(hour %in% unique(df11_train$hour)) %>% 
+    filter(day_of_week %in% unique(df11_train$day_of_week))
+  
+  # make predictions on 2010 test set
+  prediction_2010 <- data.frame(predict(lm_2011, newdata = df10_agg, 
+                                     interval = "predict", level = 0.95, 
+                                     weights = df10_agg$counts)) %>% 
+    mutate(true_duration = df10_agg$log_duration) 
+  
+  # find non-coverage rate on test set
+  test_noncover = nrow(prediction_2010 %>% filter(true_duration>upr | true_duration<lwr)) 
+  test_total = nrow(prediction_2010)
+  test_noncover_rate = test_noncover / test_total
+  
+  # do binomial test on the 2 non-coverage rates; find p value
+  res = binom.test(test_noncover,
+               test_total,
+               holdout_noncover_rate,
+               alternative = "greater")
+  p_val = res$p.value
+  p_vals = append(p_vals, p_val)
+}
+```
+
+```{r}
+p_vals = p.adjust(p_vals, method = 'fdr')
+final2 = data.frame(busy_routes, p_vals)
+final2 = final2 %>% filter(p_vals < 0.05)
+final2
+```
+
+
+
+
+
+
+
+
