@@ -275,10 +275,72 @@ final
 write.csv(final,file='single.csv')
 ```
 
+## Bar plots for comparison of number of rides
+(i) 2010 and 2011 member vs non-member
+```{r}
+# Group 2010 and 2011 data by membership
+df_10_member <- df10 %>%
+  group_by(member) %>%
+  summarize(frequency = n() / nrow(df10))
 
+df_11_member <- df11 %>%
+  group_by(member) %>%
+  summarize(frequency = n() / nrow(df11))
 
+# Combine the grouped data into a single data frame
+df_combined <- rbind(df_10_member, df_11_member)
+df_combined$data_frame <- c(rep("2010 membership", 2), rep("2011 membership", 2))
 
+# Create the bar plot
+ggplot(df_combined, aes(x = member, y = frequency, fill = member)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ data_frame, scales = "free", ncol = 2) +
+  labs(x = "Membership status", y = "Frequency", fill = "Membership status") +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0))
 
+```
 
+(ii) 2010 and 2011 weekdays
+```{r}
+# Group 2010 and 2011 data by day of week
+df_10_weekdays <- df10 %>%
+  group_by(day_of_week) %>%
+  summarize(frequency = n() / nrow(df10))
 
+df_11_weekdays <- df11 %>%
+  group_by(day_of_week) %>%
+  summarize(frequency = n() / nrow(df11))
 
+# Combine the grouped data into a single data frame
+df_combined <- rbind(df_10_weekdays, df_11_weekdays)
+df_combined$data_frame <- c(rep("2010 day of week", 7), rep("2011 day of week", 7))
+
+# Create the bar plot
+ggplot(df_combined, aes(x = day_of_week, y = frequency, fill = day_of_week)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ data_frame, scales = "free", ncol = 2) +
+  labs(x = "Day of week", y = "Frequency", fill = "Day of week")
+```
+
+(iii) 2010 and 2011 hour of day
+```{r}
+# Group 2010 and 2011 data by hour of day
+df_10_hour <- df10 %>%
+  group_by(hour_of_day) %>%
+  summarize(frequency = n() / nrow(df10))
+
+df11 <- df %>% filter(year == 2011 & route %in% busy_routes) 
+df_11_hour <- df11 %>%
+  group_by(hour_of_day) %>%
+  summarize(frequency = n() / nrow(df11))
+
+# Combine the grouped data into a single data frame
+df_combined <- rbind(df_10_hour, df_11_hour)
+df_combined$data_frame <- c(rep("2010 hour of day", 4), rep("2011 hour of day", 4))
+
+# Create the bar plot
+ggplot(df_combined, aes(x = hour_of_day, y = frequency, fill = hour_of_day)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ data_frame, scales = "free", ncol = 2) +
+  labs(x = "Hour of day", y = "Frequency", fill = "Hour of day")
+```
