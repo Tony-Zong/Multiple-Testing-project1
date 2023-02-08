@@ -62,7 +62,7 @@ df <- df %>% filter(month %in% 9:12) %>%
 ```
 
 
-We want to make sure for each route we train a model on, there is enough data. Since we use 2011 data to build the regression model, we filter for "busy" routes based on 2011's data. Here, we decide to only consider the routes with more than 100 rides during September - December in 2011.
+We want to make sure for each route we train the model on, there is enough data. Since we use 2011 data to build the regression model, we filter for "busy" routes based on 2011's data. Here, we decide to only consider the routes with more than 100 rides during September - December in 2011.
 
 We also filter for routes that have more than 100 routes in 2010.
 
