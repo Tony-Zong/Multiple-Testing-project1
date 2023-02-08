@@ -13,6 +13,7 @@ output:
 knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 80), tidy = TRUE)
 knitr::opts_chunk$set(echo = TRUE, fig.height = 4, fig.align = 'center')
 library(tidyverse)
+library(gridExtra)
 rm(list=ls())
 set.seed(123)
 ```
@@ -72,6 +73,8 @@ df <- subset(df, select=-c(station_start, station_end, year, month, day,
 
 ## Data Distribution
 
+We first check that how much data is left after cleaning.
+
 ```{r}
 df %>%
   group_by(route) %>%
@@ -83,7 +86,6 @@ df %>%
 # Permutation test without any control
 
 For each route, we are interested in the question if there is any change in ride duration at any point over the span of 2010-2011. In the language of hypothesis testing, this translates to the hypothesis that ride duration is independent of the days_since_Jan1_2010. Rejecting this hypothesis would mean that ride duration depends on the date - in other words change over time. We observe that the absolute value of correlation between duration and days_since_Jan1_2010 would be relatively small if the hypothesis is true and large otherwise, making it a good candidate statistic for the permutation test. Therefore, we first perform permutation test without any confounder control to gauge how well it works.
-
 
 ``` {r, cache = TRUE}
 permutation.test <- function(duration, days_from_start, n=1000) {
@@ -108,16 +110,19 @@ p_vals$p_adjust = p.adjust(p_vals$p_val, method = 'fdr')
 ``` {r}
 hist(p_vals$p_adjust, xlab="p_value", main="P-value Histogram", breaks=20)
 ```
-We plot the top routes that have the strongest signals and see if they indeed exhibit some kind of change.
+
+We plot the top routes that have the strongest signals and see if they indeed exhibit some kind of change. Each color represents a group.
 
 ``` {r}
 plot_route_change <- function(df, p_vals, n=2) {
-  sorted_pvals <- p_vals[order(p_vals$p_val), ]
+  sorted_pvals <- p_vals[order(p_vals$p_adjust), ]
   par(mfrow=c(round(n/2),2))
   for (i in 1:n) {
-    route_df <- filter(df, route == sorted_pvals$route[i])
-    plot(route_df$days_since_Jan1_2010, route_df$log_duration,
+    route_df <- filter(df, route == sorted_pvals$route[i]) %>%
+      mutate(grouping = paste(member, hour_of_day_2))
+    plot(route_df$days_since_Jan1_2010, exp(route_df$log_duration),
          xlab="Days since Jan 1st 2010", ylab="Duration", 
+         col=factor(route_df$grouping),
          main=paste("Route ID = ", sorted_pvals$route[i]))
   }
 }
@@ -154,49 +159,30 @@ Therefore, the distribution remains unchanged. This additional assumption that $
 
 Membership status, the day of the week (weekend or weekday), hour of the day, and temperature might be possible confounders. Adjusting the permutation test scheme to also account for these factors can ensure certain original trends in the data, for example the proportion of weekend rides, remain unchanged. We believe these are intuitive confounders as we would expect rides on Monday or Saturday, at 3am or 3pm, in 80F or 50F to be different.
 
-# Plot subsets distributions
+# Preliminary data distribution exploration
+
 We first plot to compare between the overall duration for member vs non-member, weekend vs weekday, day vs night, and temperature intervals to see if there's a difference in duration in these group categories.
-```{r}
-# membership boxplot
-ggplot(data=df, mapping=aes(x=member, y=log_duration, fill=member))+
-  stat_boxplot(geom = "errorbar",
-               width = 0.20) + 
-  geom_boxplot()
 
+```{r, message=FALSE, warning=FALSE}
+plots <- c()
+vars <- c("member", "weekend", "hour_of_day_2", "temp")
+for (i in 1:length(vars)) {
+  plot <- ggplot(data=df, mapping=aes_string(x=vars[i], y="log_duration", fill=vars[i])) +
+    stat_boxplot(geom = "errorbar", width = 0.20) + 
+    geom_boxplot() + theme(legend.position = "none")
+  plots[[i]] <- plot
+}
+grid.arrange(grobs=plots, ncol = 2)
 ```
-We can see that members overall has a smaller log_duration than non-members, meaning members spend shorter time riding overall. 
-```{r}
-# weekday boxplot
-ggplot(data=df, mapping=aes(x=day_of_week, y=log_duration, fill=day_of_week))+
-  stat_boxplot(geom = "errorbar",
-               width = 0.20) + 
-  geom_boxplot()
 
-# weekend vs weekday boxplot
-ggplot(data=df, mapping=aes(x=weekend, y=log_duration, fill=weekend))+
-  stat_boxplot(geom = "errorbar",
-               width = 0.20) + 
-  geom_boxplot()
-```
-We can see that Saturday and Sunday, or weekend in general, have larger log_duration compared to the five other weekdays, suggesting people spend longer time to ride on weekends in general.
+We make the following observations:
 
+- Members overall have lower log_durations than non-members, meaning members spend shorter time riding overall.
+- Weekends have slightly higher log_durations compared to the weekdays, suggesting people spend longer time to ride on weekends in general.
+- There is little difference in log_duration between different hours, but it seems that durations are a little longer on afternoons.
+- There is also little difference in log_duration across different temperatures, but it seems that hotter temperature relates with slightly longer durations.
 
-```{r}
-# hour of the day boxplot
-ggplot(data=df, mapping=aes(x=hour_of_day_2, y=log_duration, fill=hour_of_day_2))+
-  stat_boxplot(geom = "errorbar",
-               width = 0.20) + 
-  geom_boxplot()
-```
-There is little difference in log_duration between different hours, but it seems that duration is a little longer for afternoons.
-```{r}
-# temperature boxplot
-ggplot(data=df, mapping=aes(x=temp, y=log_duration, fill=temp))+
-  stat_boxplot(geom = "errorbar",
-               width = 0.20) + 
-  geom_boxplot()
-```
-There is also little difference in log_duration across different temperatures, but it seems that hotter temperature relates with a slightly longer duration.
+We will now run the task specific permutation tests.
 
 ``` {r, cache = TRUE}
 # Task specific Permutation Tests
@@ -239,8 +225,11 @@ hist(group_controlled_pvals$p_adjust,
 # Top Routes
 plot_route_change(df, group_controlled_pvals, n = 2)
 ```
+
 # Sanity check of task specific permutation test
+
 To check if our permutation test is working properly, we generate null, non-null, half null and half non-null datasets to check if the permutation test will give us the expected answers.
+
 ```{r, cache = TRUE}
 # generate null dataset
 df_null <- df %>%
@@ -259,6 +248,7 @@ group_controlled_pvals_null <- df_null %>%
 # Identify routes with p-val < 0.05
 significant_routes_null <- group_controlled_pvals_null %>% filter(p_adjust < 0.05)
 ```
+
 There is no significant route for the null dataset generated by random normal distribution for each route, with mean being the original mean of the route's log_duration and standard deviation being the original standard deviation of the route's log_duration.
 
 ```{r, , cache = TRUE}
@@ -280,6 +270,7 @@ group_controlled_pvals_nonnull <- df_nonnull %>%
 significant_routes_nonnull <- group_controlled_pvals_nonnull %>% filter(p_adjust < 0.05)
   
 ```
+
 All the 603 routes are significant for the nonnull dataset. The nonnull dataset is generated by making each route's log_duration to decrease in every later ride. 
 
 ```{r, cache = TRUE}
@@ -307,11 +298,12 @@ group_controlled_pvals_halfhalf <- df_halfhalf %>%
 # Identify routes with p-val < 0.05
 significant_routes_halfhalf <- group_controlled_pvals_halfhalf %>% filter(p_adjust < 0.05)
 ```
+
 For the data with half of the routes following random normal distribution and half of the routes following a decreasing trend, we found 302 routes to be significant by the correlation test. By checking with null, nonnull, and half-null half-nonnull dataset, we are able to conclude that our task specific permutation test is working properly.
 
 # Finer Bucketing of Data
 
-We then filter the data to only keep routes with more than 1000 records and apply a finer grouping. Keeping only the routes with more data (>1000), we are able to apply a finer grouping method because there is enough data to ensure the power of the test is still strong even when grouping becomes more specific. Weekdays changed from 2 categories (weekday/weekend) to 7 categories, temperature changed from 20F intervals to 10F intervals, and hour changed from 2 12-hour groups to 4 6-hour groups 
+We then filter the data to only keep routes with more than 1000 records and apply a finer grouping. Keeping only the routes with more data (> 1000), we are able to apply a finer grouping method because there is enough data to ensure the power of the test is still strong even when grouping becomes more specific. Weekdays changed from 2 categories (weekday/weekend) to 7 categories, temperature changed from 20F intervals to 10F intervals, and hour changed from 2 12-hour groups to 4 6-hour groups 
 
 ```{r}
 # FINER control for Membership status, day of the week (7), hour of the day (6), and temperature (8)
