@@ -266,18 +266,15 @@ for (a_route in busy_routes_nm_2010) {
 
 ```{r}
 p_vals = p.adjust(p_vals, method = 'fdr')
-```
-
-```{r}
-min(na.omit(p_vals))
-```
-
-```{r}
 final = data.frame(noncoverage_rates_2010$route, p_vals)
-final %>% filter(p_vals < 0.05)
+final = final %>% filter(p_vals < 0.05)
+final
 ```
 
 
+```{r}
+write.csv(final,file='single_nm.csv')
+```
 
 
 
