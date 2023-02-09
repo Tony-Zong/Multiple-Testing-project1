@@ -314,7 +314,6 @@ for (a_route in busy_routes_2010) {
              alternative = "greater")
   
   p_val = res$p.value
-  
   p_vals = append(p_vals, p_val)
 }
 ```
@@ -325,12 +324,12 @@ for (a_route in busy_routes_2010) {
 
 ```{r}
 p_vals = p.adjust(p_vals, method = 'fdr')
-final = data.frame(noncoverage_rates_2010$route, p_vals)
-final = final %>% filter(p_vals < 0.05)
-length(final$noncoverage_rates_2010.route)
+final1 = data.frame(noncoverage_rates_2010$route, p_vals)
+final1 = final1 %>% filter(p_vals < 0.05)
+length(final1$noncoverage_rates_2010.route)
 ```
 
-After adjusting for multiple testing issue, we report 76 significant routes. 
+After adjusting for multiple testing issue, we report 76 significant routes out of 159 `busy_routes` we considered. 
 
 Is this result reliable? In the next subsection, we further discuss one potential limitation of this regression prediction-based approach.
 
@@ -338,8 +337,10 @@ Is this result reliable? In the next subsection, we further discuss one potentia
 
 One potential limitation of the result above is that, there is a possibility that the composition of the riders of a route (especially for covariates that we could not control for, such as age) changed between 2010 and 2011, which resulted in the change in the ride duration. While we are not able to see if the unobserved confounders did have significant change, we may take a look at the observed covariates and see their distribution in both years, which could give us some evidence of whether this potential limitation has a significant impact or not.
 
+First, we take a look at the overall composition of the covariates of both years.
+
 (i) 2010 and 2011 member vs non-member
-```{r echo=FALSE, fig.align='center', fig.height=2.8, fig.width=5.6, cache=TRUE}
+```{r echo=FALSE, fig.align='center', fig.height=2.2, fig.width=4, cache=TRUE}
 # Group 2010 and 2011 data by membership
 df_10_member <- df10 %>%
   group_by(member) %>%
@@ -355,7 +356,7 @@ df_combined$data_frame <- c(rep("membership, 2010", 2), rep("membership, 2011", 
 
 # Create the bar plot
 ggplot(df_combined, aes(x = member, y = frequency, fill = member)) +
-  geom_bar(stat = "identity", position = "dodge") +
+  geom_bar(stat = "identity", position = "dodge", show.legend = FALSE) +
   facet_wrap(~ data_frame, scales = "free", ncol = 2) +
   labs(x = "Membership status", y = "Frequency", fill = "Membership status",
        caption = "Figure 1") +
@@ -363,7 +364,7 @@ ggplot(df_combined, aes(x = member, y = frequency, fill = member)) +
 ```
 
 (ii) 2010 and 2011 day of week
-```{r echo=FALSE, fig.align='center', fig.height=3, fig.width=6, cache=TRUE}
+```{r echo=FALSE, fig.align='center', fig.height=2.5, fig.width=5.5, cache=TRUE}
 # Group 2010 and 2011 data by day of week
 df_10_weekdays <- df10 %>%
   group_by(day_of_week) %>%
@@ -375,8 +376,8 @@ df_10_weekdays <- df10 %>%
 df_11_weekdays <- df11 %>%
   group_by(day_of_week) %>%
   summarize(frequency = n() / nrow(df11)) %>% 
-  mutate(day_of_week = recode_factor(day_of_week,"Monday"="Mon","Tuesday"="Tues",
-                                     "Wednesday"="Wed","Thursday"="Thurs",
+  mutate(day_of_week = recode_factor(day_of_week,"Monday"="Mon","Tuesday"="Tue",
+                                     "Wednesday"="Wed","Thursday"="Thur",
                                      "Friday"="Fri","Saturday"="Sat","Sunday"="Sun"))
 
 # Combine the grouped data into a single data frame
@@ -384,17 +385,15 @@ df_combined <- rbind(df_10_weekdays, df_11_weekdays)
 df_combined$data_frame <- c(rep("day of week, 2010", 7), rep("day of week, 2011", 7))
 
 # Create the bar plot
-ggplot(df_combined, aes(x = day_of_week, y = frequency, fill = day_of_week)) +
-  geom_bar(stat = "identity", position = "dodge") +
+ggplot(df_combined, aes(x = day_of_week, y = frequency)) +
+  geom_bar(stat = "identity", position = "dodge", fill = "steelblue3") +
   facet_wrap(~ data_frame, scales = "free", ncol = 2) +
-  labs(x = "Day of week", y = "Frequency", fill = "Day of week",
-       caption = "Figure 2") +
-  scale_fill_brewer(type="seq",name="Day of Week",
-                      breaks= levels(df_combined$day_of_week))
+  labs(x = "Day of week", y = "Frequency", 
+       caption = "Figure 2") 
 ```
 
 (iii) 2010 and 2011 hour of day
-```{r echo=FALSE, fig.align='center', fig.height=3, fig.width=6, cache=TRUE}
+```{r echo=FALSE, fig.align='center', fig.height=2.5, fig.width=5.5, cache=TRUE}
 # Group 2010 and 2011 data by hour of day
 df_10_hour <- df10 %>%
   group_by(hour_of_day) %>%
@@ -410,36 +409,113 @@ df_combined <- rbind(df_10_hour, df_11_hour)
 df_combined$data_frame <- c(rep("hour of day, 2010", 4), rep("hour of day, 2011", 4))
 
 # Create the bar plot
-ggplot(df_combined, aes(x = hour_of_day, y = frequency, fill = hour_of_day)) +
-  geom_bar(stat = "identity", position = "dodge") +
+ggplot(df_combined, aes(x = hour_of_day, y = frequency)) +
+  geom_bar(stat = "identity", position = "dodge", fill = "steelblue3") +
   facet_wrap(~ data_frame, scales = "free", ncol = 2) +
-  labs(x = "Hour of day", y = "Frequency", fill = "Hour of day",
-       caption = "Figure 3") +
-  scale_fill_brewer(type="seq",name="Hour of Day",
-                      breaks= levels(df_combined$hour_of_day))
+  labs(x = "Hour of day", y = "Frequency",
+       caption = "Figure 3") 
+```
+
+Using the above three plots, we visually inspect and compare the overall distributions of membership, day of week, and hour of day in 2010 and 2011. While there is a little perturbation in the distribution of hour of day, in general we didn't see significant changes in the composition of the observed covariates.
+
+Next, we examine a randomly selected route's composition of the same set of covariates in 2010 and 2011, to see if this still holds on the route-level. 
+
+(i) 2010 and 2011 member vs non-member -- route `31202-31214`
+
+```{r echo=FALSE, fig.align='center', fig.height=2.2, fig.width=4}
+# Group 2010 and 2011 data by membership
+df_10_member <- df10 %>% filter(route=='31202-31214') %>% 
+  group_by(member) %>%
+  summarize(n = n()) %>% 
+  mutate(frequency = n/sum(n))
+
+df_11_member <- df11 %>% filter(route=='31202-31214') %>% 
+  group_by(member) %>%
+  summarize(n = n()) %>% 
+  mutate(frequency = n/sum(n))
+
+# Combine the grouped data into a single data frame
+df_combined <- rbind(df_10_member, df_11_member)
+df_combined$data_frame <- c(rep("membership, 2010", 2), rep("membership, 2011", 2))
+
+# Create the bar plot
+ggplot(df_combined, aes(x = member, y = frequency, fill = member)) +
+  geom_bar(stat = "identity", position = "dodge", show.legend = FALSE) +
+  facet_wrap(~ data_frame, scales = "free", ncol = 2) +
+  labs(x = "Membership status", y = "Frequency", fill = "Membership status",
+       caption = "Figure 4") +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0))
+```
+
+(ii) 2010 and 2011 day of week -- route `31202-31214`
+
+```{r echo=FALSE, fig.align='center', fig.height=2.5, fig.width=5.5}
+# Group 2010 and 2011 data by day of week
+df_10_weekdays <- df10 %>% filter(route=='31202-31214') %>% 
+  group_by(day_of_week) %>%
+  summarize(n = n()) %>% 
+  mutate(frequency = n/sum(n)) %>% 
+  mutate(day_of_week = recode_factor(day_of_week,"Monday"="Mon","Tuesday"="Tue",
+                                     "Wednesday"="Wed","Thursday"="Thur",
+                                     "Friday"="Fri","Saturday"="Sat","Sunday"="Sun"))
+
+df_11_weekdays <- df11 %>% filter(route=='31202-31214') %>% 
+  group_by(day_of_week) %>%
+  summarize(n = n()) %>% 
+  mutate(frequency = n/sum(n)) %>% 
+  mutate(day_of_week = recode_factor(day_of_week,"Monday"="Mon","Tuesday"="Tues",
+                                     "Wednesday"="Wed","Thursday"="Thurs",
+                                     "Friday"="Fri","Saturday"="Sat","Sunday"="Sun"))
+
+# Combine the grouped data into a single data frame
+df_combined <- rbind(df_10_weekdays, df_11_weekdays)
+df_combined$data_frame <- c(rep("day of week, 2010", 7), rep("day of week, 2011", 7))
+
+# Create the bar plot
+ggplot(df_combined, aes(x = day_of_week, y = frequency)) +
+  geom_bar(stat = "identity", position = "dodge", fill = "steelblue3") +
+  facet_wrap(~ data_frame, scales = "free", ncol = 2) +
+  labs(x = "Day of week", y = "Frequency", 
+       caption = "Figure 5") 
+```
+
+(iii) 2010 and 2011 hour of day -- route `31202-31214`
+
+```{r echo=FALSE, fig.align='center', fig.height=2.5, fig.width=5.5}
+# Group 2010 and 2011 data by hour of day
+df_10_hour <- df10 %>% filter(route=='31202-31214') %>% 
+  group_by(hour_of_day) %>%
+  summarize(n = n()) %>% 
+  mutate(frequency = n/sum(n)) 
+
+df11 <- df %>% filter(year == 2011 & route %in% busy_routes) 
+df_11_hour <- df11 %>% filter(route=='31202-31214') %>% 
+  group_by(hour_of_day) %>%
+  summarize(n = n()) %>% 
+  mutate(frequency = n/sum(n)) 
+
+# Combine the grouped data into a single data frame
+df_combined <- rbind(df_10_hour, df_11_hour)
+df_combined$data_frame <- c(rep("hour of day, 2010", 4), rep("hour of day, 2011", 4))
+
+# Create the bar plot
+ggplot(df_combined, aes(x = hour_of_day, y = frequency)) +
+  geom_bar(stat = "identity", position = "dodge", fill = "steelblue3") +
+  facet_wrap(~ data_frame, scales = "free", ncol = 2) +
+  labs(x = "Hour of day", y = "Frequency", 
+       caption = "Figure 6") 
 ```
 
 
+However, when we examine the above plots generated from a randomly selected significant route we identified, there is indeed more variations in the observed covariates between 2010 and 2011. While we controlled for these observed covariates, this suggests that the composition of other unobserved confounders such as age might also change, which can cause the change in the non-coverge rates we found.
 
+Because of the limitation of the data set, we are not able to control for variables such as age, and we can only assume that the composition of the unobserved confounders doesn't change for each route across 2010 and 2011. 
 
+Ideally, we could have better control for the effect of the potential change in the composition of the unobserved confounders between 2010 and 2011 by more carefully select the testing set. Instead of using all the 2010 data as the testing set, we may try to find the samples that are "similar" (in terms of the covariates' values) to the samples in the hold-out set. Supposedly, unobserved confounders are more likely to be the same if the observed covariates are the same or at least similar. In this way, we may reduce the effect of the potential change in the composition of the unobserved confounders between 2010 and 2011.
 
+\ 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# One model for each route
+# Section III: Different model for different routes
 
 ```{r include=FALSE}
 rm(list=ls())
@@ -453,10 +529,12 @@ library(stargazer)
 set.seed(12)
 ```
 
+Now we consider the second way of constructing the regression model. That is, instead of letting all the routes share the same coefficients, we construct a separate regression model for each route. Then, we follow the same procedure used in section II to test for the difference in the non-coverage rates on the hold-out set and test set we get when we use the model to construct prediction intervals.
 
-Initial data cleaning:
+## 3.1 Implementation of the Test
 
-```{r, cache=TRUE}
+
+```{r cache=TRUE, include=FALSE}
 # get the data
 # Temperature Data
 temp_data <- 
@@ -505,9 +583,7 @@ df <- df %>% filter(month %in% 9:12) %>%
 ```
 
 
-We want to make sure for each route we train a model on, there is enough data. Since we use 2011 data to build the regression model, we filter for "busy" routes based on 2011's data. Here, we decide to only consider the routes with more than 100 rides during September - December in 2011.
-
-We also filter for routes that have more than 100 routes in 2010.
+We perform the same initial data cleaning as in section II, and again we want to make sure for each route we train a model on, there is enough data. That is, we are only considering routes with more than 100 rides in both 2010 Sept-Dec and 2011 Sept-Dec:
 
 
 ```{r cache=TRUE}
@@ -530,10 +606,7 @@ busy_routes_2010 <- busy_routes_df_2010$route
 # we only want to make predictions for routes that have enough
 # rides in both years
 busy_routes <- intersect(busy_routes_2011, busy_routes_2010)
-```
 
-
-```{r cache=TRUE}
 # split data by year
 df11 <- df %>% filter(year == 2011 & route %in% busy_routes) %>% 
   select(c(log_duration, member, year, month, day, hour, 
@@ -542,9 +615,21 @@ df11 <- df %>% filter(year == 2011 & route %in% busy_routes) %>%
 df10 <- df %>% filter(year == 2010 & route %in% busy_routes)
 ```
 
-Regression formula:
+Then, we iterate through the `busy_routes`. For each iteration, we filter for data of the route we are currently considering. Then, follow the same steps in the outline. That is, we
 
-log_duration ~ member + month + day_of_week + factor(hour) + weekend + daily_temp + route
+(1) randomly split the 2011 data set into a training set and a hold-out/validation set; 
+
+(2) train a model using the training set. In this case `route` is not a covariate anymore (i.e. the regression formula in this case is `log_duration` ~ `member` + `month` + `day_of_week` + `factor(hour)` + `daily_temp`);
+
+(3) aggregate the hold-out set;
+
+(4) apply the model onto the aggregated hold-out set, construct weighted prediction intervals, find non-coverage rate of the prediction intervals on the hold-out set;
+
+(5) apply the model onto the aggregated testing set, construct weighted prediction intervals, find non-coverage rate of the prediction intervals on the testing set;
+
+(6) perform a binomial test on the difference between the two non-coverage rates and get a p-value.
+
+After all the iterations, we adjust the p-values for multiple testing issues. 
 
 
 ```{r}
@@ -554,8 +639,6 @@ p_vals = c()
 
 ```{r cache=TRUE, message=FALSE, warning=FALSE}
 for (a_route in busy_routes) {
-  # pick a route and give it a try
-  #a_route = '31101-31200'
   
   # filter for this route's data
   route_df11 <- df11 %>% filter(route == a_route)
@@ -570,7 +653,6 @@ for (a_route in busy_routes) {
   # print(a_route)
   lm_2011 = lm(log_duration ~ member + daily_temp + month + day_of_week + hour, 
                data = df11_train)
-  #summary(lm_2011)
   
   # aggregate on 2011 hold-out set
   df11_holdout_agg <- df11_holdout %>% 
@@ -635,14 +717,33 @@ for (a_route in busy_routes) {
 }
 ```
 
+
 ```{r}
 p_vals = p.adjust(p_vals, method = 'fdr')
 final2 = data.frame(busy_routes, p_vals)
 final2 = final2 %>% filter(p_vals < 0.05)
-final2
+length(final2$busy_routes)
 ```
 
+As shown above, when we build a separate model for each route, we identified 66 out of 159 `busy_routes` we considered. 
 
+## 3.2 Discussion
+
+First, the result of this approach (building a separate model for each route) is also subject to the same potential limitation imposed by the change of composition in the unobserved confounders, which has already been discussed in section 2.2.
+
+Now, we can find the intersection of the significant routes detected by these two ways. 
+
+
+```{r include=FALSE}
+final1 = read.csv('single.csv')
+```
+
+```{r}
+intersect(final2$busy_routes, final1$noncoverage_rates_2010.route)
+length(intersect(final2$busy_routes, final1$noncoverage_rates_2010.route))
+```
+
+We that the overlap between the two sets of discoveries is roughly 40% of each of them. This indicates that whether to build separate model for each route does affect the result, and which method to use would depend on the assumptions we want to make (i.e. whether different routes should share the same set of coefficients for the covariates). On the other hand, the overlapped routes identified by both methods may suugest that they more likely had undertaken changes between 2010 and 2011. 
 
 
 
