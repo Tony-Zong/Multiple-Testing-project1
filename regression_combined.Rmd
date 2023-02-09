@@ -42,7 +42,7 @@ In the later sections, we implemented both approaches.
 
 **Step 5:** Apply the regression model on the aggregated 2010 data set. Construct prediction intervals and find a new non-coverage rate for each route. Perform a binomial test on the the non-coverage rates we get when applying the model on the 2011 validation set and the 2010 test set.
 
-**Step 6:** Adjust the p-values from the tests for the multiple testing issue, and then report the routes with significant change in non-coverage rate, i.e. the routes that have statistically significant change between 2010 and 2011.
+**Step 6:** Adjust the p-values from the tests for the multiple testing issue (using FDR control), and then report the routes with significant change in non-coverage rate, i.e. the routes that have statistically significant change between 2010 and 2011.
 
 ## 1.2 Initial data cleaning
 
@@ -329,7 +329,7 @@ final1 = final1 %>% filter(p_vals < 0.05)
 length(final1$noncoverage_rates_2010.route)
 ```
 
-After adjusting for multiple testing issue, we report 76 significant routes out of 159 `busy_routes` we considered. 
+After adjusting for multiple testing issue (we used FDR control), we report 76 significant routes out of 159 `busy_routes` we considered. 
 
 Is this result reliable? In the next subsection, we further discuss one potential limitation of this regression prediction-based approach.
 
@@ -629,7 +629,7 @@ Then, we iterate through the `busy_routes`. For each iteration, we filter for da
 
 (6) perform a binomial test on the difference between the two non-coverage rates and get a p-value.
 
-After all the iterations, we adjust the p-values for multiple testing issues. 
+After all the iterations, we adjust the p-values for multiple testing issues (using FDR control). 
 
 
 ```{r}

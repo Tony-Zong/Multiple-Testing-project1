@@ -1,0 +1,12 @@
+---
+title: "STAT 27850 Project One Report"
+author: "Tony (Haotian) Zong, Louisa Lyu, Stanley Zhu"
+date: '2023-02-09'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+There are three chapters in this report. Chapter one is about a prediction-based approach using linear regression. Chapter two is about the conditional permutation test. Chapter three is the discussion of the performance of different approaches attempted, the significance of our results, and the limitations.
