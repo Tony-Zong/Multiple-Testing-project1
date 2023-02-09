@@ -1,7 +1,5 @@
 ---
 title: "Permutation Test"
-author: "Tony Zong, Louisa Lyu, Stanley Zhu"
-date: '2023-01-28'
 geometry: margin=2cm
 output:
   pdf_document: default
@@ -106,7 +104,9 @@ df %>%
 # Section II: Permutation test without Any Control
 
 ## 2.1 Permutation test code
-For each route, we are interested in the question if there is any change in ride duration at any point over the span of 2010-2011. In the language of hypothesis testing, this translates to the hypothesis that ride duration is independent of the days_since_Jan1_2010. Rejecting this hypothesis would mean that ride duration depends on the date - in other words change over time. We observe that the absolute value of correlation between duration and days_since_Jan1_2010 would be relatively small if the hypothesis is true and large otherwise, making it a good candidate statistic for the permutation test. Therefore, we first perform permutation test without any confounder control to gauge how well it works.
+For each route, we are interested in the question if there is any change in ride duration at any point over the span of 2010-2011. In the language of hypothesis testing, this translates to the hypothesis that ride duration is independent of the days_since_Jan1_2010. Rejecting this hypothesis would mean that ride duration depends on the date - in other words change over time. We observe that the absolute value of correlation between duration and days_since_Jan1_2010 would be relatively small if the hypothesis is true and large otherwise, making it a good candidate statistic for the permutation test. Therefore, we first perform permutation test without any confounder control to gauge how well it works. 
+
+It should be noted in advance that total number of routes left after data cleaning and filtering process is 603. 
 
 ``` {r, cache = TRUE}
 permutation.test <- function(duration, days_from_start, n=1000) {
@@ -149,6 +149,8 @@ plot_route_change <- function(df, p_vals, n=2) {
 }
 plot_route_change(df, p_vals)
 ```
+
+For these two plots, we observe a gradual decrease in the duration as time goes on from 2010 to 2011.
 
 # Section III: Task-Specific Permutation Tests
 
@@ -234,6 +236,10 @@ group_controlled_pvals <- df %>%
   mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
 ```
 
+```{r, echo = FALSE}
+print(paste0("Number of significant routes using absolute correlation statistics: ", nrow(group_controlled_pvals %>% filter(p_adjust < 0.05))))
+```
+
 ## 3.3 Task specific P-value Histogram and Graphs
 
 ``` {r}
@@ -244,6 +250,8 @@ hist(group_controlled_pvals$p_adjust,
 # Top Routes
 plot_route_change(df, group_controlled_pvals, n = 2)
 ```
+
+Similarly, we observe a decreasing trend in duration from 2010 to 2011, though there is a reduction in the number of discovery due to control. 
 
 ## 3.4 Sanity check of task specific permutation test
 
@@ -256,7 +264,8 @@ sanity_check <- function(df) {
   pvalues <- df %>%
     group_by(route) %>%
     summarize(p_val = permutation.task_specific_test(random, days_since_Jan1_2010, abscor_t, 
-                                                     paste(member, weekend, hour_of_day, temp), n=100)) %>%
+                                                     paste(member, weekend, hour_of_day, temp),
+                                                     n=100)) %>%
     # Adjust p_vals for multiple testing
     mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
 
@@ -307,7 +316,8 @@ We then experiment with a finer bucketing of data, where weekdays changed from 2
 group_controlled_pvals2 <- df %>%
   group_by(route) %>%
   summarize(p_val = permutation.task_specific_test(log_duration, days_since_Jan1_2010, abscor_t, 
-                                                   paste(member, day_of_week, hour_of_day_2, temp_2), n=100)) %>%
+                                                   paste(member, day_of_week, hour_of_day_2, temp_2), 
+                                                   n=100)) %>%
   mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
 
 # Plot P-value histogram and top routes
@@ -348,7 +358,7 @@ hist(group_controlled_mean_pvals$p_adjust,
 plot_route_change(df, group_controlled_mean_pvals)
 ```
 
-```{r}
+```{r, echo = FALSE}
 print(paste0("Number of significant routes using mean statistics: ", nrow(group_controlled_mean_pvals %>% filter(p_adjust < 0.05))))
 ```
 
@@ -376,7 +386,7 @@ hist(group_controlled_median_pvals$p_adjust,
 plot_route_change(df, group_controlled_median_pvals, n=2)
 ```
 
-```{r}
+```{r, echo = FALSE}
 print(paste0("Number of significant routes using median statistics: ", nrow(group_controlled_median_pvals %>% filter(p_adjust < 0.05))))
 ```
 
