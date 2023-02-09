@@ -1,5 +1,5 @@
 ---
-title: "STAT 27850 Project 1 Code"
+title: "Permutation Test"
 author: "Tony Zong, Louisa Lyu, Stanley Zhu"
 date: '2023-01-28'
 geometry: margin=2cm
@@ -14,12 +14,32 @@ knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 80), tidy = TRUE)
 knitr::opts_chunk$set(echo = TRUE, fig.height = 4, fig.align = 'center')
 library(tidyverse)
 library(gridExtra)
-rm(list=ls())
 set.seed(123)
 theme_set(theme_bw())
-```
 
-# Load Data and Data Cleaning
+rm(list=ls())
+```
+# Section I: Introduction to the Permutation Test
+This permutation approach finds routes that seem to show change in duration over time, and then permute the duration to see if the change is or is not likely to appear when data is randomly shuffled. For routes that is statistically unlikely to have the actual changes when randomly shuffled, we believe the change is unlikely to be due to random fluctuation in data but indeed an actual change in duration. Thus, these routes will be marked as significant. Because we are testing for hundreds of routes simultaneously, we also used multiple testing correction to control for false discovery rate when computing p values and making inferences. 
+
+## 1.1 Outline of the steps taken
+**Step 0:** Data cleaning, filter out only routes with sufficient number of records (>500) to perform the permutation test.
+
+**Step 1:** Run the permutation test on each route without controlling for any covariate to guage its efficiency in identifying routes.
+
+**Step 2:** Run the task specific permutation test, which is the permutation test with control for covariate, on the routes. With control, only data within the same group category get shuffled. For example, morning rides will only be shuffled with other morning rides, and member rides will only be shuffled with other members' rides. This approach preserves original trends and structures in the data so that original trends will be preserved. 
+
+**Step 3:** Evaluate the task specific permutation test's reliability by simulations. We constructed three fake datasets: completely null distributions for all routes, strictly decreasing distribution for all routes, and half null half decreasing distributions for all routes. We then run our task specific permutation test to see if it correctly identified the non-null routes.
+
+**Step 4:** Explore possible improvements on the task specific permutation test. Here, two approaches are attempted:
+
+Firstly, we tried to use finer bucketing of data on routes with sufficiently large amount of data (>1000) to see it's effectiveness. For these popular routes, we divided covariate like temperature, day of week, and hour of day more meticulously. For example, we split temperature into 10F intervals, compared to before splitting them into 20F intervals. 
+
+Secondly, we explored other test statistics, for example by dividing the data in middle for each route and calculate the mean and median differences between the two halves. These method might be able to better identify sudden changes compared to absolute correlation test, which is more effectively at finding long-term changes.
+
+**Step 5:** Find common significant routes identified by different test statistics in permutation test. Do research to explore the routes on map and see if our results actually correspond to real-world constructions, or explore possible reasons for our significant results.
+
+## 1.2 Load Data and Data Cleaning
 
 ```{r}
 # Remove outliers with IQR range test
@@ -68,11 +88,11 @@ df <- data.frame(log_duration = log(duration), station_start, station_end,
   ungroup()
 
 # Drop unnecessary columns
-df <- subset(df, select=-c(station_start, station_end, year, month, day, 
+df <- subset(df, select=-c(station_start, station_end, month, day, 
                            minute, second, time1, time2, daily_max, daily_min))
 ```
 
-## Data Distribution
+## 1.3 Data Distribution
 
 We first check that how much data is left after cleaning - we are left with 603 observations.
 
@@ -83,9 +103,9 @@ df %>%
   ggplot(aes(x=num_rides)) +
   geom_histogram()
 ```
+# Section II: Permutation test without Any Control
 
-# Permutation test without any control
-
+## 2.1 Permutation test code
 For each route, we are interested in the question if there is any change in ride duration at any point over the span of 2010-2011. In the language of hypothesis testing, this translates to the hypothesis that ride duration is independent of the days_since_Jan1_2010. Rejecting this hypothesis would mean that ride duration depends on the date - in other words change over time. We observe that the absolute value of correlation between duration and days_since_Jan1_2010 would be relatively small if the hypothesis is true and large otherwise, making it a good candidate statistic for the permutation test. Therefore, we first perform permutation test without any confounder control to gauge how well it works.
 
 ``` {r, cache = TRUE}
@@ -106,7 +126,7 @@ p_vals <- df %>%
 p_vals$p_adjust = p.adjust(p_vals$p_val, method = 'fdr')
 ```
 
-## P-value Histogram and Graphs
+## 2.2 P-value Histogram and Graphs
 
 ``` {r}
 hist(p_vals$p_adjust, xlab="p_value", main="P-value Histogram", breaks=20)
@@ -130,7 +150,7 @@ plot_route_change <- function(df, p_vals, n=2) {
 plot_route_change(df, p_vals)
 ```
 
-# Task-Specific Permutation Tests
+# Section III: Task-Specific Permutation Tests
 
 However, with confounding variables in the play, a simple permutation scheme will not suffice. For example, it is plausible that members generally ride faster than non-members (who may not be frequent riders), and so the correlation between ride duration and date is confounded by the membership status. To account for these many possible confounders, we use a task-specific permutation testing scheme.
 
@@ -160,7 +180,7 @@ Therefore, the distribution remains unchanged. This additional assumption that $
 
 Membership status, the day of the week (weekend or weekday), hour of the day, and temperature might be possible confounders. Adjusting the permutation test scheme to also account for these factors can ensure certain original trends in the data, for example the proportion of weekend rides, remain unchanged. We believe these are intuitive confounders as we would expect rides on Monday or Saturday, at 3am or 3pm, in 80F or 50F to be different.
 
-# Preliminary data distribution exploration
+## 3.1 Preliminary data distribution exploration
 
 We first plot to compare between the overall duration for member vs non-member, weekend vs weekday, day vs night, and temperature intervals to see if there's a difference in duration in these group categories.
 
@@ -185,6 +205,7 @@ We make the following observations:
 
 We will now run the task specific permutation tests.
 
+## 3.2 Task specific permutation tests code
 ``` {r, cache = TRUE}
 # Task specific Permutation Tests
 permutation.task_specific_test <- function(duration, days_from_start, compute_t, grouping, n=1000) {
@@ -213,7 +234,7 @@ group_controlled_pvals <- df %>%
   mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
 ```
 
-## Task specific P-value Histogram and Graphs
+## 3.3 Task specific P-value Histogram and Graphs
 
 ``` {r}
 # P-value distribution
@@ -224,7 +245,7 @@ hist(group_controlled_pvals$p_adjust,
 plot_route_change(df, group_controlled_pvals, n = 2)
 ```
 
-# Sanity check of task specific permutation test
+## 3.4 Sanity check of task specific permutation test
 
 To check if our permutation test is working properly, we generate null, non-null, half null and half non-null datasets to check if the permutation test will give us the expected answers.
 
@@ -276,7 +297,7 @@ We see that there is no significant route for the null dataset generated by rand
 
 On the other hand, for the data with half of the routes following random normal distribution and half of the routes following a decreasing trend, we found 302 routes to be significant by the correlation test. By checking with null, signal, and half-null half-signal dataset, we are able to conclude that our task specific permutation test is working properly.
 
-# Finer Bucketing of Data
+## 3.5 Finer Bucketing of Data with task specific permutation test
 
 We then experiment with a finer bucketing of data, where weekdays changed from 2 categories (weekday/weekend) to 7 categories, temperature changed from 20F intervals to 10F intervals, and hour changed from 2 12-hour groups to 4 6-hour groups.
 
@@ -298,13 +319,13 @@ plot_route_change(df, group_controlled_pvals)
 
 We see that the number of significant routes reduces, as we are employing a finer control, which likely leads to less power.
 
-# Exploration of Better statistics to detect sudden changes
+# Section IV: Exploration of Better Statistics to Detect Sudden Changes
 
 As correlation is more suitable in detecting long-term gradual change in data and not as powerful for detecting bumps, we explore other statistics to better identify bumps and changes in the data.
 
 We perform the same task specific permutation test, but change the test statistics to mean or median instead of correlation. We split the data into the "earlier half" and the "later half" based on days_since_Jan_1st_2010. We then compute and compare the mean or median of the two halves. Permutation test will then be performed to see if the difference between the two halves is indeed statistically significant (for each route). 
 
-## Using the mean statistic
+## 4.1 Using the mean statistic
 
 ```{r, cache = TRUE}
 # Task specific permutation tests for mean
@@ -322,10 +343,16 @@ group_controlled_mean_pvals <- df %>%
 
 hist(group_controlled_mean_pvals$p_adjust, 
      xlab="p_value", main="P-value Histogram", breaks=20)
+```
+```{r}
 plot_route_change(df, group_controlled_mean_pvals)
 ```
 
-## Using the median statistic
+```{r}
+print(paste0("Number of significant routes using mean statistics: ", nrow(group_controlled_mean_pvals %>% filter(p_adjust < 0.05))))
+```
+
+## 4.2 Using the median statistic
 
 ```{r, cache = TRUE}
 # Task specific permutation tests for median
@@ -343,12 +370,19 @@ group_controlled_median_pvals <- df %>%
 
 hist(group_controlled_median_pvals$p_adjust, 
      xlab="p_value", main="P-value Histogram", breaks=20)
+```
+
+```{r}
 plot_route_change(df, group_controlled_median_pvals, n=2)
 ```
 
-## Significant routes with all 3 statistics
+```{r}
+print(paste0("Number of significant routes using median statistics: ", nrow(group_controlled_median_pvals %>% filter(p_adjust < 0.05))))
+```
 
-We check to see how many routes are marked as having a statistically significant change using all 3 statistics.
+## 4.3 Significant routes with all 3 statistics
+
+We check to see how many routes are marked as having a statistically significant change using all 3 statistics (absolute correlation, mean, and median) with the task specific permutation test.
 
 ```{r}
 # check the common routes detected by correlation, mean, and median methods
@@ -356,13 +390,12 @@ corr_routes <- subset(group_controlled_pvals, p_adjust < 0.05)
 mean_routes <- subset(group_controlled_mean_pvals, p_adjust < 0.05)
 median_routes <- subset(group_controlled_median_pvals, p_adjust < 0.05)
 
-common_routes <- intersect(mean_routes$route, median_routes$route)
-common_routes <- intersect(common_routes, corr_routes$route)
+common_routes <- intersect(intersect(mean_routes$route, median_routes$route), corr_routes$route)
 length(common_routes)
 head(common_routes, 10)
 ```
 
-# Significant routes exploration
+## 4.4 Significant routes exploration
 
 ```{r}
 stations = c()
@@ -373,32 +406,41 @@ for (route in common_routes) {
 }
 station_counts <- sort(table(stations), decreasing = TRUE)
 head(station_counts, 3)
-
 ```
 
 These stations correspond to the Dupont circle (31200 & 31201) and the Columbus circle (31623). However, upon inspecting the news & google map, it is unclear if there has been any change to the actual routes during the period. Both stations are among the top used stations per Capital Bikeshare reports. We conjecture that the gradual decrease over time might be more and more people become more familiar with the locations since the program opens in 2010.
 
-## Discussions and Limitations of the Permutation Test
+# Section I: Compare Permutation Test with Regression Test results
 
-Our permutation test is effective in identifying long-term changes in trend, and its validity is further improved by using three test statistics (correlation, mean, and median) to find significant routes in common. Nevertheless, there are a few limitations due to the nature of the test statistics and the data itself that should be noted.
+## 1.1 Permutation Test only on data from September to December (both 2010 and 2011)
 
-Firstly, by plotting out the duration data for the significant routes that the permutation test identified, we noticed that there’s an increase in the amount of data with time. This is probably because the record for Washington D.C.’s bikeshare program started at around 2010 September, thus there’s more people participating in the program as time progresses. This might bias our test statistics due to the larger amount of data points towards the end (in time): with larger sample size, it is more likely that random fluctuations in the data might leads to spurious correlations. 
-
-Secondly, though the permutation test considered membership, day of week, hour of day, and temperature, there are still many other relevant variables that are not considered but worth considering. For example, the age of the rider is likely to influence durations—we would normally expect a 80-year-old to ride slower compared to a 20-year-old. Also, we did not control for weather—we would expect people to take longer riding in rain compared to a sunny or cloudy day. These are not considered due to either limitation in the dataset itself or due to the limited time and resources we have.
-
-Thirdly, our test statistics is not perfect in identifying some abrupt or sudden changes in the data: it captures long-term changes better. We did not find a perfect test statistics that could allow us to detect such sudden changes. Our best conjecture is to chop the data into smaller sections and compare the mean/median between each two consecutive sections. However, due to the limited data for each route, we might not be able to do so while controlling for all the other relevant variables that we should control for (membership, day of week, hour of day, and temperature). 
-
-Fourthly, we noticed that each “route” is specified by a starting station number and an ending station number. However, when looking up on google maps, we noticed that sometimes there exist multiple possible path between two stations. Different path takes slightly different amount of time, but they are all considered to be the same “route” due to the same starting and ending station number. This might bias our result—the correlation might arise due to fluctuations in frequencies people take the shorter vs the longer paths. We tried to improve this problem by removing outliers for each route to exclude some extreme cases (i.e., start from a station, ride around D.C. for 2hrs, and return to a station nearby the starting station), but the result might still be biased by paths that take not so different amount of times. 
-
-## Using correlation only on data from September to December (both 2010 and 2011)
-
-We then re-run the correlation test with only the data from September to December in 2010 and 2011 to compare with the result from our other regression model.
+We then re-run the correlation test with only the data from September to December in 2010 and 2011 to compare with the result from our regression model. Only data from September to December is used because our regression model also only used these data since 2010 does not have data from January to August. 
 
 ```{r, cache = TRUE}
 # filter out only data from september to december in 2010 and 2011
 df_sepdec <- df %>%
   filter(member == TRUE) %>%
   filter(between(days_since_Jan1_2010, 243, 364) | between(days_since_Jan1_2010, 608, 729))
+
+# filter out routes that only have data for 2010 or only have data for 2011
+busy_routes_df_2011 <- df_sepdec %>% 
+  filter(year==2011) %>% 
+  group_by(route) %>% 
+  summarise(ride_counts = n()) %>% 
+  filter(ride_counts >= 100)
+busy_routes_2011 <- busy_routes_df_2011$route
+
+busy_routes_df_2010 <- df_sepdec %>% 
+  filter(year==2010) %>% 
+  group_by(route) %>% 
+  summarise(ride_counts = n()) %>% 
+  filter(ride_counts >= 100)
+busy_routes_2010 <- busy_routes_df_2010$route
+
+busy_routes <- intersect(busy_routes_2011, busy_routes_2010)
+
+df_sepdec2 <- df_sepdec %>% filter(route %in% busy_routes)
+
 # test statistics to compare the median between 2010 sep-dec and 2011 sep-dec
 median_t_sepdec <- function(duration, days_from_start) {
   first_half <- duration[1:(which(days_from_start > 608)[1] - 1)]
@@ -413,32 +455,80 @@ group_controlled_sepdec_pvals <- df_sepdec %>%
   mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
 # Identify routes with p-val < 0.05
 significant_routes_sepdec_median <- group_controlled_sepdec_pvals %>% filter(p_adjust < 0.05)
+
 # use absolute correlation on the 2010 sep-dec and 2011 sep-dec
-group_controlled_sepdec_pvals <- df_sepdec %>%
+group_controlled_sepdec_pvals2 <- df_sepdec %>%
   group_by(route) %>%
   summarize(p_val = permutation.task_specific_test(log_duration, days_since_Jan1_2010, abscor_t, 
                                                    paste(member, weekend, hour_of_day, temp))) %>%
   # Adjust p_vals for multiple testing
   mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
 # Identify routes with p-val < 0.05
-significant_routes_sepdec_abscor<- group_controlled_sepdec_pvals %>% filter(p_adjust < 0.05)
+significant_routes_sepdec_abscor<- group_controlled_sepdec_pvals2 %>% filter(p_adjust < 0.05)
 ```
+
+```{r}
+print(paste0("Number of significant routes using median statistics (only Sep to Dec): ", nrow(significant_routes_sepdec_median)))
+```
+
+```{r}
+print(paste0("Number of significant routes using absolute correlation (only Sep to Dec): ", nrow(significant_routes_sepdec_abscor)))
+```
+
 
 ```{r}
 plot_route_change(df_sepdec, group_controlled_sepdec_pvals)
 ```
+
+## 1.2 Common routes between Permutation and Regression Test
 
 We believe the median/mean test statistics is the most relevant or comparable test statistics with the regression test as both treated 2010 and 2011 data separately and compared the two with each other. The median test statistics would be better than mean as it will not be affected by outliers. Therefore, we find the common routes identified by the permutation (median test statistics) with the regression test to see if the two methods give common results.
 
 ```{r}
 # Find common routes identified by permutation (median) and regression test
 regression <- read.csv("single.csv")
-intersect(significant_routes_sepdec_median$route, regression$noncoverage_rates_2010.route)
+lst <- intersect(significant_routes_sepdec_median$route, regression$noncoverage_rates_2010.route)
+lst
 ```
+Among the 76 routes identified as significant by the regression test, and the routes found by the permutation median test, there are 26 routes in common. On one hand, this suggests that differences exist in the two approaches as the result does not match very well. On the other hand, by intersecting the common significant routes found by the two different approaches, these 26 routes' validity are improved as they survived both significance tests: they are more likely to have underwent some change throughout time compared to other routes that are only found to be significant by one test. 
 
-We then find common routes identified by permutation (median), permutation (absolute correlation), and regression test to identify routes that are shown to be significantly changed by all three test statistics. Since absolute correlation and median are testing different types of changes, we think these routes are most likely to have some sort of changes as it survived all three tests (that are all testing changes from slightly different approachs).
+```{r}
+# plot the first two in the intersection between permutation (median) and regression test
+significant_routes_sepdec_common <- significant_routes_sepdec_median[significant_routes_sepdec_median$route %in% lst, ]
+
+plot_route_change(df_sepdec, significant_routes_sepdec_common)
+```
+Above plots show the top two most significant routes identified by permutatation test (median) and regression test in common. Both tests used only data from September to December in 2010 and 2011, thus the above plots only show datapoints used in the tests (2011 January - August data taken out). With different color representing different group categories, we can vaguely see that group composition for each route might be different in the two halves. For example, for route 31103-31106, more black points appeared in the 2011 data (on the right), while there is much less black dots in the 2010 data. This change in group composition might affect the validity of our result: the change in duration might be due to change in group compositions. For example, hypothetically, duration might shortened because there's more member riding than before and members ride faster in general. However, when doing the permutation test, we did not control for the groupings in each year (2010 and 2011 separately): instead, we shuffled all the data together. This is because there's insufficient data for most routes, especially in 2010. Therefore, there might not be enough data within the year for our permutation test that controls for four covariate (2 * 2 * 2 * 4 = 32 groups).
+
+We then find common routes identified by permutation (median), permutation (absolute correlation), and regression test to identify routes that are shown to be significantly changed by all three test statistics.
 
 ```{r}
 # Find common routes identified by permutation (median) and regression test
 intersect(intersect(significant_routes_sepdec_median$route, significant_routes_sepdec_abscor$route), regression$noncoverage_rates_2010.route)
 ```
+
+# Section II: Discussion
+## 2.1 Limitations of the Permutation Test
+
+Our permutation test is effective in identifying long-term changes in trend, and its validity is further improved by using three test statistics (correlation, mean, and median) to find significant routes in common. Nevertheless, there are a few limitations due to the nature of the test statistics and the data itself that should be noted.
+
+1) by plotting out the duration data for the significant routes that the permutation test identified, we noticed that there’s an increase in the amount of data with time. This is probably because the record for Washington D.C.’s bikeshare program started at around 2010 September, thus there’s more people participating in the program as time progresses. This might bias our test statistics due to the larger amount of data points towards the end (in time): with larger sample size, it is more likely that random fluctuations in the data might leads to spurious correlations. 
+
+2) though the permutation test considered membership, day of week, hour of day, and temperature, there are still many other relevant variables that are not considered but worth considering. For example, the age of the rider is likely to influence durations—we would normally expect a 80-year-old to ride slower compared to a 20-year-old. Also, we did not control for weather—we would expect people to take longer riding in rain compared to a sunny or cloudy day. These are not considered due to either limitation in the dataset itself or due to the limited time and resources we have.
+
+Related to the second point, as shown above in the route plots, the group compositions (morning/night rides, weekday/weekend rides, member/non-member rides, rides in different temperatures) for each route might change throughout time. For example, it is conceivable that as more people get familiarized with the bikeshare program, they might be more likely to ride on a daily basis in weekdays instead of just "having fun" on weekends; they might also more likely to be enrolled and become a member. Though our permutation test shuffled data within groups, but we could not control for changes in group compositions. Therefore, our significant routes detected might be due to changes in group compositions: there are more members, and as members ride faster in general, duration is shortened (when we are computing for median or mean). It is worth noting that in the description of the assignment, we were asked "can you detect any routes where the average time it takes to travel the route, changes over the course of the time period?". Therefore, change in duration due to change in group composition is also a valid change over the course of the time period. We believe one possible reason for the change in duration of our detected routes might be due to change in group compositions.
+
+3) our test statistics is not perfect in identifying some abrupt or sudden changes in the data: it captures long-term changes better. We did not find a perfect test statistics that could allow us to detect such sudden changes. Our best conjecture is to chop the data into smaller sections and compare the mean/median between each two consecutive sections. However, due to the limited data for each route, we might not be able to do so while controlling for all the other relevant variables that we should control for (membership, day of week, hour of day, and temperature). However, the absolute correlation approach does attempted and is suitable to answer the question of "detecting if there is any change at any point for each route".
+
+4) we noticed that each “route” is specified by a starting station number and an ending station number. However, when looking up on google maps, we noticed that sometimes there exist multiple possible path between two stations. Different path takes slightly different amount of time, but they are all considered to be the same “route” due to the same starting and ending station number. This might bias our result—the correlation might arise due to fluctuations in frequencies people take different paths. Technically, it should not be quantified as one route if the paths are very different. We tried to improve this problem by removing outliers for each route to exclude some extreme cases (i.e., start from a station, ride around D.C. for 2hrs, and return to a station nearby the starting station), but the result might still be biased by paths that take not so different, but still different amount of times. 
+
+## 2.2 Limitations of the Regression Test
+1) First and foremost, the true relationship between duration and the explanatory variables might not be linear - especially after we have taken the log transformation. As such, linear regression might not be the best choice to produce prediction intervals.
+
+2) We are assuming that the data distribution of the calibration dataset and the test dataset is similar, for instance, there is no sudden change in the number of member riders in the test dataset since that might affect the coverage rate. Theoretically, it is best to have the calibration set and test set from the same distribution.
+
+3) By regressing just over the hour of the day, or temperature, we are implicitly assuming that there are no interaction terms between the two, which might not be true. However, due to limitations in our sample sizes, it is unfeasible by separating the data into very fine groups like what we did with the permutation dataset, and regressing over the rest of the explanatory variables. Therefore, we opted to only separate members from non-members and carry out the regression.
+
+4) This linear regression only aims to detect whether there's any change in duration between Sep-Dec 2010 and Sep-Dec 2011. It's entirely possible that a change occurred between the two time periods, (i.e. a road construction that started in Jan 2011 and finished in Aug 2011) and our linear regression approach will not be able to detect that, whereas, on the other hand, permutation tests should be able to catch these changes.
+
+5) As we dropped data from Jan 2011 to Aug 2011, a large portion of the original data, we inevitably lose some power in our detection procedure. Apart from the problem in 4), we are also losing on more sample size. However, this is necessary to get two relatively comparable datasets (e.g. we don't need to worry about the temperature acting as a confounder).
