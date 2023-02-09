@@ -1,6 +1,6 @@
 ---
-title: "Discussion"
-geometry: margin=2cm
+title: "Chapter Three: Discussion"
+
 output:
   pdf_document: default
   html_document:
@@ -126,26 +126,31 @@ median_t_sepdec <- function(duration, days_from_start) {
   second_half <- duration[which(days_from_start > 608)[1]:length(duration)]
   median(first_half) - median(second_half)
 }
-group_controlled_sepdec_pvals <- df_sepdec %>%
-  group_by(route) %>%
+
+group_controlled_sepdec_pvals <- df_sepdec %>% 
+  group_by(route) %>% 
   summarize(p_val = permutation.task_specific_test(log_duration, days_since_Jan1_2010, 
                                                    median_t_sepdec, 
                                                    paste(member, weekend, hour_of_day, temp))) %>%
   # Adjust p_vals for multiple testing
   mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
+
 # Identify routes with p-val < 0.05
-significant_routes_sepdec_median <- group_controlled_sepdec_pvals %>% filter(p_adjust < 0.05)
+significant_routes_sepdec_median <- group_controlled_sepdec_pvals %>% 
+  filter(p_adjust < 0.05)
 
 # use absolute correlation on the 2010 sep-dec and 2011 sep-dec
-group_controlled_sepdec_pvals2 <- df_sepdec %>%
-  group_by(route) %>%
+group_controlled_sepdec_pvals2 <- df_sepdec %>% 
+  group_by(route) %>% 
   summarize(p_val = permutation.task_specific_test(log_duration, days_since_Jan1_2010, 
                                                    abscor_t, 
                                                    paste(member, weekend, hour_of_day, temp))) %>%
   # Adjust p_vals for multiple testing
   mutate(p_adjust = p.adjust(p_val, method = 'fdr'))
+
 # Identify routes with p-val < 0.05
-significant_routes_sepdec_abscor<- group_controlled_sepdec_pvals2 %>% filter(p_adjust < 0.05)
+significant_routes_sepdec_abscor<- group_controlled_sepdec_pvals2 %>% 
+  filter(p_adjust < 0.05)
 ```
 
 ```{r, echo = FALSE}
@@ -191,7 +196,20 @@ intersect(intersect(significant_routes_sepdec_median$route,
 ```
 
 # Section II: Limitations
-## 2.1 Limitations of the Permutation Test
+
+## 2.1 Limitations of the Regression Test
+1) The true relationship between duration and the explanatory variables might not be linear. As such, linear regression might not be the best choice to produce prediction intervals.
+
+2) We are assuming that the data distribution of the hold-out set and the test set is similar. For instance, there is no sudden change in the number of member riders in the test set since that might affect the coverage rate. We are also assuming there is no change in the composition of unobserved confounders between 2010 and 2011. Ideally, it would be the best to have the covariates of the hold-out set and test set from the same distribution.
+
+3) We are assuming that there are no interaction terms between the covariates, which might not be true. However, due to limitations in the sample sizes, it is unfeasible by separating the data into very fine groups like what we did with the permutation data set, and regressing over the rest of the explanatory variables.
+
+4) This regression prediction-based approach only aims to detect whether there's any change in duration between Sep-Dec 2010 and Sep-Dec 2011. It's possible that a change occurred between the two time periods (such as a road construction that started in Jan 2011 and finished in Aug 2011) and our linear regression approach will not be able to detect that. Whereas, on the other hand, permutation tests with the test statistics being the absolute correlation between time and duration should be able to catch these changes.
+
+5) As we drop data from Jan 2011 to Aug 2011, a large portion of the original data, we inevitably lose some power in our detection procedure. Apart from the problem in 4), we are also losing on more sample size. However, this is necessary to get two relatively comparable data sets (e.g. we don't need to worry about the season acting as a confounder).
+
+
+## 2.2 Limitations of the Permutation Test
 
 Our permutation test is effective in identifying long-term changes in trend, and its validity is further improved by using three test statistics (correlation, mean, and median) to find significant routes in common. Nevertheless, there are a few limitations due to the nature of the test statistics and the data itself that should be noted.
 
@@ -205,13 +223,3 @@ Related to the second point, as shown above in the route plots, the group compos
 
 4) we noticed that each “route” is specified by a starting station number and an ending station number. However, when looking up on google maps, we noticed that sometimes there exist multiple possible path between two stations. Different path takes slightly different amount of time, but they are all considered to be the same “route” due to the same starting and ending station number. This might bias our result—the correlation might arise due to fluctuations in frequencies people take different paths. Technically, it should not be quantified as one route if the paths are very different. We tried to improve this problem by removing outliers for each route to exclude some extreme cases (i.e., start from a station, ride around D.C. for 2hrs, and return to a station nearby the starting station), but the result might still be biased by paths that take not so different, but still different amount of times. 
 
-## 2.2 Limitations of the Regression Test
-1) First and foremost, the true relationship between duration and the explanatory variables might not be linear - especially after we have taken the log transformation. As such, linear regression might not be the best choice to produce prediction intervals.
-
-2) We are assuming that the data distribution of the calibration dataset and the test dataset is similar, for instance, there is no sudden change in the number of member riders in the test dataset since that might affect the coverage rate. Theoretically, it is best to have the calibration set and test set from the same distribution.
-
-3) By regressing just over the hour of the day, or temperature, we are implicitly assuming that there are no interaction terms between the two, which might not be true. However, due to limitations in our sample sizes, it is unfeasible by separating the data into very fine groups like what we did with the permutation dataset, and regressing over the rest of the explanatory variables. Therefore, we opted to only separate members from non-members and carry out the regression.
-
-4) This linear regression only aims to detect whether there's any change in duration between Sep-Dec 2010 and Sep-Dec 2011. It's entirely possible that a change occurred between the two time periods, (i.e. a road construction that started in Jan 2011 and finished in Aug 2011) and our linear regression approach will not be able to detect that, whereas, on the other hand, permutation tests should be able to catch these changes.
-
-5) As we dropped data from Jan 2011 to Aug 2011, a large portion of the original data, we inevitably lose some power in our detection procedure. Apart from the problem in 4), we are also losing on more sample size. However, this is necessary to get two relatively comparable datasets (e.g. we don't need to worry about the temperature acting as a confounder).

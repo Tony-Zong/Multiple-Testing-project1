@@ -1,10 +1,8 @@
 ---
-title: "Permutation Test"
+title: "Chapter Two: Permutation Test"
 geometry: margin=2cm
 output:
   pdf_document: default
-  html_document:
-    df_print: paged
 ---
 
 ```{r setup, message=FALSE, warning=FALSE, include=FALSE}

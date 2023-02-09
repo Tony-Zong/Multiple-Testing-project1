@@ -1,5 +1,5 @@
 ---
-title: "Regression -- A Prediction-Based Approach"
+title: "Chapter One: \"Regression Test\"-- A Prediction-Based Approach"
 output: pdf_document
 ---
 
@@ -743,8 +743,9 @@ intersect(final2$busy_routes, final1$noncoverage_rates_2010.route)
 length(intersect(final2$busy_routes, final1$noncoverage_rates_2010.route))
 ```
 
-We that the overlap between the two sets of discoveries is roughly 40% of each of them. This indicates that whether to build separate model for each route does affect the result, and which method to use would depend on the assumptions we want to make (i.e. whether different routes should share the same set of coefficients for the covariates). On the other hand, the overlapped routes identified by both methods may suugest that they more likely had undertaken changes between 2010 and 2011. 
+We that the overlap between the two sets of discoveries is roughly 40% of each of them. This indicates that whether to build separate model for each route does affect the result, and which method to use would depend on the assumptions we want to make (i.e. whether different routes should share the same set of coefficients for the covariates). On the other hand, the overlapped routes identified by both methods may suggest that they more likely had undertaken changes between 2010 and 2011. 
 
+For more discussion on the comparison of different approaches and the limitations of these approaches, please refer to the last chapter of this report. 
 
 
 
