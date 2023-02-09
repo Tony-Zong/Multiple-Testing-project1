@@ -1,5 +1,5 @@
 ---
-title: "Regression -- A Prediction Based Approach"
+title: "Regression -- A Prediction-Based Approach"
 output: pdf_document
 ---
 
@@ -12,7 +12,7 @@ set.seed(12)
 theme_set(theme_bw())
 ```
 
-# Introduction to the Regression Approach
+# Section I: Introduction to the Regression Approach
 
 The gist of this approach is using one year's data to predict the other year's ride durations (the outcome variable), and then comparing the predictions to the actual durations. The intuition is that if there is no significant change in the routes, we should expect to see that the predictions and the true ride durations to be close to each other. And if we observe a statistically significant amount of differences between them for a certain route, this could be a potential evidence that this route had changed between 2010 and 2011.
 
@@ -20,7 +20,7 @@ Before delving into the details of each step of this approach, we want to acknow
 
 Again, since the program started in late 2010, there was less data in 2010 than in 2011. Thus, in order to consider more routes in our regression model (a route needs to have enough data to be included in the model; otherwise there can be too much noise), we decided to use 2011 Sept.-Dec.'s data to train the model, and then apply the model on 2010's data for testing.
 
-## Outline of the steps taken
+## 1.1 Outline of the steps taken
 
 **Step 0:** Data cleaning. Details will be discussed in the later section.
 
@@ -43,12 +43,11 @@ In the later sections, we implemented both approaches.
 **Step 5:** Apply the regression model on the aggregated 2010 data set. Construct prediction intervals and find a new non-coverage rate for each route. Perform a binomial test on the the non-coverage rates we get when applying the model on the 2011 validation set and the 2010 test set.
 
 
-## Initial data cleaning
+## 1.2 Initial data cleaning
 
-We get additional data on daily average temperature
+We get additional data on daily average temperature in Washington D.C. from North America Land Data Assimilation System. We take a log transformation on ride duration to make it less skewed. Then, we remove outliers in `log_duration` using the 1.5 IQR rule and remove routes with less than 500 rides in the original data set to make out test to be less affected by the outliers. In the end, we exclude the data from Jan. to Aug. in 2011, as discussed earlier in the outline.
 
 ```{r, cache=TRUE}
-# get the data
 # Temperature Data
 temp_data <- 
   read.table("data/temperature-data.txt", 
@@ -58,6 +57,7 @@ temp_data <-
   mutate(month = as.numeric(substring(time2, 6, 7))) %>% 
   mutate(day = as.numeric(substring(time2, 9, 10))) %>%
   mutate(daily_temp = (daily_max + daily_min) / 2)
+
 # Remove outliers with IQR range test
 outliers <- function(x) {
     q25 <- quantile(x, probs=.25)
@@ -65,6 +65,7 @@ outliers <- function(x) {
     interval <- q75 - q25
     x > q75 + (interval * 1.5) | x < q25 - (interval * 1.5)
 }
+
 # Bike-share Data
 load("data/bikedata.RData")
 colnames(starttime) = c("year", "month", "day", "hour", "minute", "second")
@@ -89,19 +90,19 @@ df <- data.frame(log_duration = log(duration), station_start, station_end,
 df <- df %>% filter(month %in% 9:12) %>% 
   mutate(month = factor(month)) %>% 
   mutate(day_of_week = factor(day_of_week)) %>% 
-  mutate(day_of_week = fct_relevel(day_of_week, 
-                                   c("Monday","Tuesday","Wednesday",
-                                     "Thursday","Friday","Saturday","Sunday"))) %>% 
+  mutate(day_of_week = fct_relevel(day_of_week, c("Monday","Tuesday","Wednesday",
+                                                  "Thursday","Friday","Saturday","Sunday"))) %>% 
   mutate(hour = factor(hour))
 ```
 
 
-# One single model for all the routes, with `route` as a covariate
+# Section II: One Single Model for All Routes, with `route` as a Covariate
+
+In this section, we implemented the test using one single regression model for all routes, with `route` as a covariate.
 
 We want to make sure for each route we train the model on, there is enough data. Since we use 2011 data to build the regression model, we filter for "busy" routes based on 2011's data. Here, we decide to only consider the routes with more than 100 rides during September - December in 2011.
 
-We also filter for routes that have more than 100 routes in 2010.
-
+We also filter for routes that have more than 100 routes in 2010. A route with too few rides in the test set can result in too much variation in the non-coverage rate, so we decide to only apply the regression model for routes with enough rides when making predictions.
 
 ```{r cache=TRUE}
 busy_routes_df <- df %>% 
@@ -109,24 +110,16 @@ busy_routes_df <- df %>%
   group_by(route) %>% 
   summarise(ride_counts = n()) %>% 
   filter(ride_counts >= 100)
-
 busy_routes <- busy_routes_df$route
-
 
 busy_routes_df_2010 <- df %>% 
   filter(year==2010) %>% 
   group_by(route) %>% 
   summarise(ride_counts = n()) %>% 
   filter(ride_counts >= 100)
-
 busy_routes_2010 <- busy_routes_df_2010$route
 busy_routes_2010 <- intersect(busy_routes, busy_routes_2010)
-```
 
-
-
-
-```{r cache=TRUE}
 # split data by year
 df11 <- df %>% filter(year == 2011 & route %in% busy_routes) %>% 
   select(c(log_duration, member, year, month, day, hour, 
@@ -136,13 +129,9 @@ df10 <- df %>% filter(year == 2010 & route %in% busy_routes_2010)
 ```
 
 
-Regression formula:
+### Step 1: create a hold-out set for 2011
 
-log_duration ~ member + month + day_of_week + factor(hour) + weekend + daily_temp + route
-
-
-### Step 1: create a hold-out set for 2011 (for example, 20%)
-
+Here, we use 80% of 2011's data to train the model. The rest of 20% will be validation set.
 
 ```{r cache=TRUE}
 # create hold-out set for 2011
@@ -152,22 +141,27 @@ df11_holdout =df11[-picked,]
 ```
 
 
-### Step 2: train a regression model using 2011’s training data (without aggregation, so that the model covers a wider range for the feature values → less likely for extrapolation to happen)
+### Step 2: train a regression model using 2011’s training data
+
+Regression formula:
+
+`log_duration` ~ `member` + `month` + `day_of_week` + `factor(hour)` + `daily_temp` + `route`
+
+We regress `log_duration` on membership status, month, day of week, hour, and daily temperature. Additionally, `route` is also included as a covariate in the model.
 
 ```{r cache=TRUE}
 lm_2011 = lm(log_duration ~ member + daily_temp + month + day_of_week + hour + route, 
              data = df11_train)
 ```
 
-```{r echo = T, results = 'hide'}
+```{r echo = F, results = 'hide'}
 summary(lm_2011)
 ```
 
 
-## Step 3: Aggregation on 2011 hold-out set
+## Step 3: aggregation on 2011 hold-out set
 
-We perform aggregation on the 2011 hold-out data set by grouping rides for each route from the same hour together. We do the aggregation by taking median. We also keep track of the number of samples represented by each row in this aggregated data frame. This will be used as weights when we construct the prediction intervals in the net step.
-
+We perform aggregation on the 2011 hold-out data set by grouping rides for each route from the same hour and membership status together. We do the aggregation by taking the median on `log_duration`. Aggregation supposedly should make the data less noisy. We also keep track of the number of samples represented by each row in this aggregated data frame. This will be used as weights when we construct the prediction intervals in the next step.
 
 ```{r cache=TRUE}
 df11_holdout_agg <- df11_holdout %>% 
@@ -183,16 +177,23 @@ df11_holdout_agg <- df11_holdout %>%
 
 ## Step 4: construct prediction intervals for the hold-out data set
 
-Here, we just want to make sure that there is no route that only appears in the hold-out set, but not in the training set. After checking this, we know this didn't happen. 
+Here, we just want to make sure that there is no route that only appears in the hold-out set, but not in the training set, as this will make the `predict()` function fail. After checking this, we know it didn't happen. 
 
 ```{r cache=TRUE}
 train_routes <- unique(df11_train$route)
-
 df11_holdout_agg <- df11_holdout_agg %>% 
   filter(route %in% train_routes)
 ```
 
 Then, we make predictions for the 2011 hold-out set, and construct 95% prediction intervals adjusted by weights.
+
+Without aggregation, the formula for the prediction interval of a new sample is: 
+$$\hat{y}_h \pm t_{(1-\alpha/2, n-2)} \times \sqrt{MSE \times \left(1+ \frac{1}{n} + \dfrac{(x_h-\bar{x})^2}{\sum(x_i-\bar{x})^2}\right)}$$
+
+Now, for an aggregated sample $i$ with weight $w_i$, where $w_i$ represents the number of original samples being aggregated into this aggregated sample, the formula for the prediction interval of a new aggregated sample is:
+$$\hat{y}_h \pm t_{(1-\alpha/2, n-2)} \times \sqrt{MSE \times \left(\frac{1}{\sqrt{w_i}}+ \frac{1}{n} + \dfrac{(x_h-\bar{x})^2}{\sum(x_i-\bar{x})^2}\right)}
+$$
+
 
 ```{r cache=TRUE}
 prediction_2011_holdout <- data.frame(predict(lm_2011, newdata = df11_holdout_agg, 
