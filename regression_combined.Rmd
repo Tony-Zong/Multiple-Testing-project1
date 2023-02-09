@@ -42,6 +42,7 @@ In the later sections, we implemented both approaches.
 
 **Step 5:** Apply the regression model on the aggregated 2010 data set. Construct prediction intervals and find a new non-coverage rate for each route. Perform a binomial test on the the non-coverage rates we get when applying the model on the 2011 validation set and the 2010 test set.
 
+**Step 6:** Adjust the p-values from the tests for the multiple testing issue, and then report the routes with significant change in non-coverage rate, i.e. the routes that have statistically significant change between 2010 and 2011.
 
 ## 1.2 Initial data cleaning
 
@@ -127,7 +128,11 @@ df11 <- df %>% filter(year == 2011 & route %in% busy_routes) %>%
 
 df10 <- df %>% filter(year == 2010 & route %in% busy_routes_2010)
 ```
+\ 
 
+## 2.1 Implementation of the Test
+
+\ 
 
 ### Step 1: create a hold-out set for 2011
 
@@ -139,7 +144,7 @@ picked = sample(seq_len(nrow(df11)), size = nrow(df11)*0.8)
 df11_train =df11[picked,]
 df11_holdout =df11[-picked,]
 ```
-
+\ 
 
 ### Step 2: train a regression model using 2011’s training data
 
@@ -157,9 +162,9 @@ lm_2011 = lm(log_duration ~ member + daily_temp + month + day_of_week + hour + r
 ```{r echo = F, results = 'hide'}
 summary(lm_2011)
 ```
+\ 
 
-
-## Step 3: aggregation on 2011 hold-out set
+### Step 3: aggregation on 2011 hold-out set
 
 We perform aggregation on the 2011 hold-out data set by grouping rides for each route from the same hour and membership status together. We do the aggregation by taking the median on `log_duration`. Aggregation supposedly should make the data less noisy. We also keep track of the number of samples represented by each row in this aggregated data frame. This will be used as weights when we construct the prediction intervals in the next step.
 
@@ -173,9 +178,9 @@ df11_holdout_agg <- df11_holdout %>%
   distinct() %>% 
   arrange(route, month, day, hour, member)
 ```
+\ 
 
-
-## Step 4: construct prediction intervals for the hold-out data set
+### Step 4: construct prediction intervals for the hold-out data set
 
 Here, we just want to make sure that there is no route that only appears in the hold-out set, but not in the training set, as this will make the `predict()` function fail. After checking this, we know it didn't happen. 
 
@@ -191,8 +196,7 @@ Without aggregation, the formula for the prediction interval of a new sample is:
 $$\hat{y}_h \pm t_{(1-\alpha/2, n-2)} \times \sqrt{MSE \times \left(1+ \frac{1}{n} + \dfrac{(x_h-\bar{x})^2}{\sum(x_i-\bar{x})^2}\right)}$$
 
 Now, for an aggregated sample $i$ with weight $w_i$, where $w_i$ represents the number of original samples being aggregated into this aggregated sample, the formula for the prediction interval of a new aggregated sample is:
-$$\hat{y}_h \pm t_{(1-\alpha/2, n-2)} \times \sqrt{MSE \times \left(\frac{1}{\sqrt{w_i}}+ \frac{1}{n} + \dfrac{(x_h-\bar{x})^2}{\sum(x_i-\bar{x})^2}\right)}
-$$
+$$\hat{y}_h \pm t_{(1-\alpha/2, n-2)} \times \sqrt{MSE \times \left(\frac{1}{\sqrt{w_i}}+ \frac{1}{n} + \dfrac{(x_h-\bar{x})^2}{\sum(x_i-\bar{x})^2}\right)}$$
 
 
 ```{r cache=TRUE}
@@ -202,14 +206,16 @@ prediction_2011_holdout <- data.frame(predict(lm_2011, newdata = df11_holdout_ag
   mutate(true_duration = df11_holdout_agg$log_duration)
 ```
 
-The original 95% prediction intervals have a non-coverage rate of 0.04799874:
+The 95% prediction intervals for the hold-out set as a whole have a non-coverage rate of 0.04799874, which is roughly equal to what we expect (0.05):
 
 ```{r}
-nrow(prediction_2011_holdout %>% 
+overall_nc_rate_2011 <- nrow(prediction_2011_holdout %>% 
        filter(true_duration>upr | true_duration<lwr)) / nrow(prediction_2011_holdout)
+overall_nc_rate_2011
 ```
+\ 
 
-
+Then, we compute the non-coverage rates each route in the 2011 hold-out set. The non-coverage rate for route $i$ is defined as: $$ \frac{number \ of \ rides \ of \ route \ i \ whose \ true \ duration \ lies \ outside \ of \ the \ prediction \ interval}{total \ number \ of \ rides \ of \ route \ i}$$
 ```{r}
 noncoverage_rates_2011 <- prediction_2011_holdout %>% 
   mutate(route = df11_holdout_agg$route) %>% 
@@ -222,17 +228,16 @@ noncoverage_rates_2011 <- prediction_2011_holdout %>%
   distinct() %>% 
   arrange(desc(noncoverage_proportion)) %>% 
   filter(route %in% busy_routes_2010)
-
-noncoverage_rates_2011
 ```
 
 
-Now, if the 2010's data doesn't have significant change from 2011's data, we should also expect to see a non-coverage rate of roughly ???%. 
+Now, if the 2010's data doesn't have significant change from 2011's data, we should also expect to see a non-coverage rate of roughly 5%. 
 
+\ 
 
-## Step 5: apply the regression model on the aggregated 2010 data set (Sept. to Dec.); construct prediction intervals and adjust their width; compare this new coverage rate to the one we get from 2011 hold-out set.
+### Step 5: apply the regression model on the aggregated 2010 data set, construct prediction intervals, find non-coverage rate for each route, and then perform binomial tests to see if the non-coverage rate on the testing set is significantly greater than that on the hold-out set
 
-Again, we first aggregate 2011's data, just like we did to 2011's hold-out set.
+Again, we first aggregate 2010's data by hour and by membership status and compute weights, just like what we did to 2011's hold-out set:
 
 ```{r}
 df10_agg <- df10 %>% 
@@ -246,7 +251,7 @@ df10_agg <- df10 %>%
   arrange(route, month, day, hour, member)
 ```
 
-Then, we create prediction intervals:
+Then, we create prediction intervals, adjusted by weights:
 
 ```{r cache=TRUE}
 prediction_2010 <- data.frame(predict(lm_2011, newdata = df10_agg, 
@@ -260,9 +265,21 @@ prediction_2010 <- data.frame(predict(lm_2011, newdata = df10_agg,
 Finally, we get an overall non-coverage rate of 0.1022566, which is greater than 0.05. 
 
 ```{r}
-nrow(prediction_2010 %>% filter(true_duration>upr | true_duration<lwr)) / nrow(prediction_2010)
+nrow(prediction_2010 %>% 
+       filter(true_duration>upr | true_duration<lwr)) / nrow(prediction_2010)
 ```
 
+We can do a binomial test to see if the overall non-coverage rate of the 2010 test set is significantly greater than the overall non-coverage rate of the 2011 hold-out set:
+
+```{r}
+binom.test(nrow(prediction_2010 %>% filter(true_duration>upr | true_duration<lwr)),
+           nrow(prediction_2010),
+           overall_nc_rate_2011)$p.value
+```
+
+This small p-value indicates that there was some route that had changed between 2010 and 2011. Next, we test for each route whether it had significant change or not.
+
+We first compute the non-coverage rates for the routes in the 2010 testing set:
 
 ```{r}
 noncoverage_rates_2010 <- prediction_2010 %>% 
@@ -274,10 +291,9 @@ noncoverage_rates_2010 <- prediction_2010 %>%
   select(c(route, total_ride_count, noncoverage_count, noncoverage_proportion)) %>% 
   distinct() %>% 
   arrange(desc(noncoverage_proportion))
-
-noncoverage_rates_2010
 ```
 
+The for each `busy_route`, i.e. each route that had more than 100 rides in both 2010 Sept-Dec and 2011 Sept-Dec, we do a binomial test to see if its non-coverage rates on 2011 hold-out set and 2010 testing set are significantly different than each other:
 
 ```{r message=FALSE, warning=FALSE, cache=TRUE}
 p_vals = c()
@@ -303,18 +319,27 @@ for (a_route in busy_routes_2010) {
 }
 ```
 
+\ 
+
+### Step 6: Adjust the p-values for multiple testing issue and report the routes with significant change in non-coverage rate, i.e. the routes that have statistically significant change between 2010 and 2011
 
 ```{r}
 p_vals = p.adjust(p_vals, method = 'fdr')
 final = data.frame(noncoverage_rates_2010$route, p_vals)
 final = final %>% filter(p_vals < 0.05)
-final
+length(final$noncoverage_rates_2010.route)
 ```
 
+After adjusting for multiple testing issue, we report 76 significant routes. 
 
-## Bar plots for comparison of number of rides
+Is this result reliable? In the next subsection, we further discuss one potential limitation of this regression prediction-based approach.
+
+## 2.2 Discussion
+
+One potential limitation of the result above is that, there is a possibility that the composition of the riders of a route (especially for covariates that we could not control for, such as age) changed between 2010 and 2011, which resulted in the change in the ride duration. While we are not able to see if the unobserved confounders did have significant change, we may take a look at the observed covariates and see their distribution in both years, which could give us some evidence of whether this potential limitation has a significant impact or not.
+
 (i) 2010 and 2011 member vs non-member
-```{r cache=TRUE}
+```{r echo=FALSE, fig.align='center', fig.height=2.8, fig.width=5.6, cache=TRUE}
 # Group 2010 and 2011 data by membership
 df_10_member <- df10 %>%
   group_by(member) %>%
@@ -332,13 +357,13 @@ df_combined$data_frame <- c(rep("membership, 2010", 2), rep("membership, 2011", 
 ggplot(df_combined, aes(x = member, y = frequency, fill = member)) +
   geom_bar(stat = "identity", position = "dodge") +
   facet_wrap(~ data_frame, scales = "free", ncol = 2) +
-  labs(x = "Membership status", y = "Frequency", fill = "Membership status") +
+  labs(x = "Membership status", y = "Frequency", fill = "Membership status",
+       caption = "Figure 1") +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0))
-
 ```
 
-(ii) 2010 and 2011 weekdays
-```{r cache=TRUE}
+(ii) 2010 and 2011 day of week
+```{r echo=FALSE, fig.align='center', fig.height=3, fig.width=6, cache=TRUE}
 # Group 2010 and 2011 data by day of week
 df_10_weekdays <- df10 %>%
   group_by(day_of_week) %>%
@@ -362,13 +387,14 @@ df_combined$data_frame <- c(rep("day of week, 2010", 7), rep("day of week, 2011"
 ggplot(df_combined, aes(x = day_of_week, y = frequency, fill = day_of_week)) +
   geom_bar(stat = "identity", position = "dodge") +
   facet_wrap(~ data_frame, scales = "free", ncol = 2) +
-  labs(x = "Day of week", y = "Frequency", fill = "Day of week") +
+  labs(x = "Day of week", y = "Frequency", fill = "Day of week",
+       caption = "Figure 2") +
   scale_fill_brewer(type="seq",name="Day of Week",
                       breaks= levels(df_combined$day_of_week))
 ```
 
 (iii) 2010 and 2011 hour of day
-```{r cache=TRUE}
+```{r echo=FALSE, fig.align='center', fig.height=3, fig.width=6, cache=TRUE}
 # Group 2010 and 2011 data by hour of day
 df_10_hour <- df10 %>%
   group_by(hour_of_day) %>%
@@ -387,7 +413,8 @@ df_combined$data_frame <- c(rep("hour of day, 2010", 4), rep("hour of day, 2011"
 ggplot(df_combined, aes(x = hour_of_day, y = frequency, fill = hour_of_day)) +
   geom_bar(stat = "identity", position = "dodge") +
   facet_wrap(~ data_frame, scales = "free", ncol = 2) +
-  labs(x = "Hour of day", y = "Frequency", fill = "Hour of day") +
+  labs(x = "Hour of day", y = "Frequency", fill = "Hour of day",
+       caption = "Figure 3") +
   scale_fill_brewer(type="seq",name="Hour of Day",
                       breaks= levels(df_combined$hour_of_day))
 ```
